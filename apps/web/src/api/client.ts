@@ -1,4 +1,4 @@
-import type { HealthResponse } from './types';
+import type { HealthResponse, RulesListResponse } from './types';
 
 /**
  * The backend base URL. `VITE_API_BASE_URL` is the only variable that names it
@@ -13,6 +13,9 @@ export const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhos
 
 /** The full health-check URL. This module is the only one that builds one. */
 export const healthUrl = `${apiBaseUrl}/health`;
+
+/** The rules-list URL (1.2.1). Built here for the same reason as `healthUrl`. */
+export const rulesUrl = `${apiBaseUrl}/rules`;
 
 /**
  * A backend call that did not produce a usable response. `status` is the HTTP
@@ -48,11 +51,24 @@ function describe(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
 }
 
-export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+/**
+ * One GET that answers with JSON, or an `ApiError` saying why it did not.
+ *
+ * Every endpoint this app reads fails in the same three ways — unreachable, a
+ * non-2xx answer, a body that is not JSON — so the classification lives once
+ * here rather than being copied per call. The caller supplies the URL, which is
+ * both what is fetched and what the error carries, so an `ApiError` always
+ * names the address that produced it.
+ *
+ * The body is asserted, not validated: the backend owns the shape and the
+ * types in `./types.ts` restate it. A response that disagrees is a backend bug,
+ * not a case this layer can usefully recover from.
+ */
+async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(healthUrl, {
+    response = await fetch(url, {
       headers: { Accept: 'application/json' },
       signal,
     });
@@ -60,7 +76,7 @@ export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
     // The request never reached a response: the backend is not running, the
     // host does not resolve, or the browser blocked it. There is no status.
     if (isAbortError(cause)) throw cause;
-    throw new ApiError(`Could not reach ${healthUrl}: ${describe(cause)}`, null, healthUrl);
+    throw new ApiError(`Could not reach ${url}: ${describe(cause)}`, null, url);
   }
 
   if (!response.ok) {
@@ -68,18 +84,34 @@ export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
     throw new ApiError(
       `The backend answered ${response.status}${statusText}.`,
       response.status,
-      healthUrl,
+      url,
     );
   }
 
   try {
-    return (await response.json()) as HealthResponse;
+    return (await response.json()) as T;
   } catch (cause) {
     if (isAbortError(cause)) throw cause;
     throw new ApiError(
       `The backend answered ${response.status} but the body is not JSON: ${describe(cause)}`,
       response.status,
-      healthUrl,
+      url,
     );
   }
+}
+
+export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  return await requestJson<HealthResponse>(healthUrl, signal);
+}
+
+/**
+ * The rules screen's list (1.2.1).
+ *
+ * The array comes back already filtered to active versions with pending rows
+ * and already sorted most-pending-first. Nothing here re-sorts or re-filters
+ * it: that behaviour belongs to the endpoint, and a second copy of it on this
+ * side could only ever drift from the first.
+ */
+export async function getRules(signal?: AbortSignal): Promise<RulesListResponse> {
+  return await requestJson<RulesListResponse>(rulesUrl, signal);
 }

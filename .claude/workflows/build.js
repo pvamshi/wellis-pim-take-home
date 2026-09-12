@@ -88,7 +88,11 @@ const REVIEW_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    ok: { type: 'boolean', description: 'true only if it builds, tests pass, and every named requirement is met' },
+    ok: {
+      type: 'boolean',
+      description:
+        'true if it builds, tests pass, every named requirement is met, and no test is weak. Overreach alone never makes this false — report it and move on.',
+    },
     ran: { type: 'array', items: { type: 'string' } },
     failures: { type: 'array', items: { type: 'string' }, description: 'Command plus error for anything not exiting 0' },
     unmet: {
@@ -224,9 +228,11 @@ Three questions, all of which must pass.
    is worse than no test. List those in weakTests.
 
 Also list overreach: anything built that ${id} did not ask for, including
-groundwork for a later task.
+groundwork for a later task. Overreach is REPORTED, never fatal — a human reads
+that list and decides. Do not set ok=false for it.
 
-ok is false if anything fails, is unmet, or is a weak test.
+ok is false only if the build or tests fail, a named requirement is unmet, or a
+test is weak.
 
 What the developer says it did:
 ${JSON.stringify(dev, null, 2)}
@@ -267,8 +273,16 @@ Return the structured result.`,
   )
 }
 
-const only = Array.isArray(args) && args.length ? args.map(Number) : null
-const selected = only ? PHASES.filter((p) => only.includes(p.n)) : PHASES
+// args accepts phase numbers (1, 2) or task ids ("T6.2"), mixed freely.
+// Anything not selected is skipped entirely, so a partially-done phase can be
+// finished without re-running what already landed.
+const wanted = Array.isArray(args) && args.length ? args.map(String) : null
+const selected = !wanted
+  ? PHASES
+  : PHASES.map((p) => ({
+      ...p,
+      tasks: wanted.includes(String(p.n)) ? p.tasks : p.tasks.filter((t) => wanted.includes(t)),
+    })).filter((p) => p.tasks.length)
 
 const done = []
 const commits = []
