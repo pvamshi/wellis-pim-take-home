@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LegacyModule } from '../legacy/legacy.module';
 import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
+import { RuleDetailService } from './rule-detail.service';
 import { RuleFindingsService } from './rule-findings.service';
 import { RuleListService } from './rule-list.service';
 import { RuleRegistry } from './rule-registry';
@@ -66,6 +67,15 @@ import { Rule } from './rule.entity';
  * are this module's. The endpoint that serves it lives in a module of its own
  * like every other one, so this is exported too, and it needs no `forFeature`
  * of its own either.
+ *
+ * `RuleDetailService` is the second read of the same set of tables — one
+ * expanded rule, its pending rows and its approved rows (1.2.2), each showing
+ * before and after (1.2.3). It sits beside `RuleListService` for the reason
+ * that one is here: the tables are this module's. Its endpoint lives in
+ * `rule-detail/`, a sibling of `rules-list/` rather than a second method on it,
+ * so this is exported too — and it needs no `forFeature` of its own either:
+ * `rule` and `rule_version` are registered here, and the three per-source rule
+ * tables by `LegacyModule`.
  */
 @Module({
   imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -76,6 +86,7 @@ import { Rule } from './rule.entity';
     RuleApprovalsService,
     RuleRowDeclinesService,
     RuleListService,
+    RuleDetailService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -87,6 +98,7 @@ import { Rule } from './rule.entity';
     RuleApprovalsService,
     RuleRowDeclinesService,
     RuleListService,
+    RuleDetailService,
   ],
 })
 export class RulesModule {}
