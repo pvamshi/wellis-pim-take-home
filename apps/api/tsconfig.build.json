@@ -1,0 +1,12 @@
+{
+  // `outDir` and `rootDir` live here, not in tsconfig.json. tsconfig.json is what
+  // the editor and `tsc --noEmit` use, and it has to cover test/ and
+  // vitest.config.ts as well as src/ — a rootDir of ./src would reject them.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "test", "dist", "**/*.spec.ts"]
+}

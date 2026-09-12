@@ -1,0 +1,18 @@
+{
+  // The Nest CLI reads the TypeScript in apps/api/node_modules, and
+  // @nestjs/schematics 12 peers on `typescript >=6`. So this app pins TypeScript 6
+  // explicitly (the root stays on 5 for typescript-eslint, which does not support 6
+  // yet). TypeScript 6 rejects `moduleResolution: node10` as deprecated, so this
+  // app uses nodenext instead. apps/api/package.json has no `"type"` field, so the
+  // package is CommonJS and nodenext emits CommonJS — which is what `nest build`
+  // must produce and what `node dist/main.js` expects.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2023",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "sourceMap": true
+  }
+}

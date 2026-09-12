@@ -13,6 +13,7 @@ export const meta = {
 
 const STACK = 'notes/tech-stack.md'
 const OPEN = 'notes/unresolved-questions.md'
+const DEFER = 'notes/deferred.md'
 const NOTES = 'notes/rough-drafts.md'
 
 const GROUND_RULES = `
@@ -22,6 +23,9 @@ Ground rules for every agent in this workflow:
   describes how this workflow itself is meant to run.
 - Read ${OPEN}. Everything listed there is undecided. If your work depends on one
   of those answers, you have found a gap — you have not found permission to pick.
+  The exception is a question marked deferred or not blocking: that one has been
+  looked at and set aside on purpose. Build around it and leave it alone.
+- Read ${DEFER}. Everything there was cut deliberately. Do not build it back.
 - Never write to notes/final-requirements.md.
 - Scaffold only. No product features. No import logic, no rules engine, no
   intake forms, no review console. Those are separate, later workflows.
@@ -58,11 +62,16 @@ const CLARIFY_SCHEMA = {
         },
         required: ['question', 'blocks'],
       },
-      description: 'Decisions the human must make. Any entry here means clear=false.',
+      description: 'Only decisions that are genuinely not yours. Any entry here means clear=false.',
+    },
+    decided: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Choices you made because the notes were silent, each with one line on why',
     },
     summary: { type: 'string' },
   },
-  required: ['clear', 'requirements', 'gaps', 'summary'],
+  required: ['clear', 'requirements', 'gaps', 'decided', 'summary'],
 }
 
 const IMPLEMENT_SCHEMA = {
@@ -133,12 +142,13 @@ const APPS = [
 - NestJS + TypeScript.
 - TypeORM, with SQLite. No Prisma. No migration tooling — entities plus schema
   sync is enough; we ship one final schema state, not a chain of migrations.
-- The database connection is configurable per environment through env vars: a
-  local file path for test and dev, a Turso URL plus auth token when deployed.
-  Turso is libSQL and TypeORM ships no libSQL driver, so wire the better-sqlite3
-  driver and hand it the \`libsql\` npm package as the driver module — \`libsql\`
-  exposes a better-sqlite3-compatible API. Put this behind one config module so
-  the rest of the app never knows which it is talking to.
+- One \`DATABASE_URL\` whose scheme selects the driver: \`file:\` locally,
+  \`libsql://\` when deployed, with \`TURSO_AUTH_TOKEN\` set only in the second case.
+  Nothing else decides — not NODE_ENV, not a mode flag. See tech-stack §4.6.1.
+  TypeORM ships no libSQL driver, so wire the better-sqlite3 driver and hand it
+  the \`libsql\` npm package as the driver module — \`libsql\` exposes a
+  better-sqlite3-compatible API. Put this behind one config module so the rest of
+  the app never knows which it is talking to.
 - Vitest, not Jest. Remove the Jest wiring the Nest CLI generates.
 - Tests run against a real temporary SQLite database file, not mocks. Provide the
   helper that creates and tears one down per suite, and one passing smoke test
@@ -160,7 +170,8 @@ const APPS = [
 - A typed API client pointed at the backend through one env var for the base URL,
   and a single page that calls the backend health endpoint and renders the
   result. That is the whole UI for now — it exists to prove the two halves talk.
-- Routing is not decided yet. Do not install a router; leave a TODO naming it.`,
+- \`react-router-dom\`, with a minimal route tree — one route for the health page.
+  Plain nested routes, no data loaders, no framework mode. See tech-stack §4.1.`,
   },
 ]
 
@@ -172,15 +183,24 @@ async function build(unit) {
     `${GROUND_RULES}
 
 You are the CLARIFY agent for the "${unit.key}" unit. You do not write any code.
-Your only job is to decide whether this can be built without guessing.
+Your job is to turn the brief into unambiguous, checkable requirements.
 
-Read ${STACK}, ${OPEN} and the repository as it stands. Then restate the brief as
-unambiguous, checkable requirements.
+Read ${STACK}, ${OPEN}, ${DEFER} and the repository as it stands.
 
-Anything you would have to invent — a library nobody named, a layout nobody
-chose, a behaviour nobody specified — is a gap, not an assumption. List it as a
-gap and set clear=false. Being strict here is the point: an implementer that was
-never told what correct means produces plausible-looking wrong systems.
+You are expected to DECIDE, not to ask. This is scaffolding: almost every choice
+here is reversible in minutes, and a human has already been asked the questions
+worth asking. Where the notes are silent, pick the conventional answer for this
+stack, write it into the requirements explicitly so the implementer cannot
+diverge, and list it in \`decided\` with one line on why. Strictness is not the
+goal — an unambiguous brief is.
+
+Set clear=false ONLY when the decision is genuinely not yours: product behaviour,
+what the data means, anything a user sees and depends on, or anything expensive
+to undo once built. A missing lint rule, a config flag, a file name, a folder
+layout, a default port — decide it and move on.
+
+If you find yourself with more than two gaps, you are being too strict. Re-read
+them and decide the ones that are merely unstated conventions.
 
 Brief:
 ${unit.brief}

@@ -43,6 +43,14 @@ Anything still open lives in `unresolved-questions.md`, never here as a guess.
   better-sqlite3-compatible API.
 - All of this sits behind one config module, so the rest of the app never knows
   which it is talking to.
+- `better-sqlite3` the package is never installed. Both branches hand `libsql` to
+  TypeORM as the driver module — it opens a local file as happily as a Turso URL.
+  Installing better-sqlite3 as well means a second native module that compiles
+  from source on any Node past its prebuild window, and it buys nothing.
+- TypeScript: the root is on 5 (typescript-eslint does not support 6 yet),
+  `apps/api` pins 6 because the Nest CLI reads the copy in its own node_modules
+  and `@nestjs/schematics` 12 peers on `>=6`. `apps/api` therefore uses
+  `module: nodenext`, since 6 rejects the `node10` resolution Nest templates ship.
 
 #### 4.6.1 Environment variables
 - `DATABASE_URL` — one variable. Its scheme selects the driver:
@@ -68,6 +76,25 @@ Anything still open lives in `unresolved-questions.md`, never here as a guess.
 - `.claude/` is committed. The workflow scripts are how the work was directed,
   which is part of what this project is being judged on.
 - `.memcli/` is explicitly ignored. It is a local, machine-specific store.
+
+### 4.10 Shared TypeScript config
+- `tsconfig.base.json` at the root is the real config. Each app's generated
+  tsconfig is trimmed to `extends` plus only the options that app must own.
+- The base fixes strictness for both apps: `strict: true`, `noUnusedLocals`,
+  `noUnusedParameters`, `esModuleInterop`, `skipLibCheck`,
+  `forceConsistentCasingInFileNames`, `resolveJsonModule`.
+- The Nest CLI template ships several `strict*` flags off, including
+  `noImplicitAny`. It gets adjusted up to match. Vite's react-ts defaults already
+  agree.
+- The base must NOT set `jsx`, `module`, `moduleResolution`, `outDir`, `rootDir`,
+  `experimentalDecorators`, `emitDecoratorMetadata` or `types`. Nest and Vite
+  need conflicting values for each, so each app owns them.
+
+### 4.11 Top-level commands
+- `concurrently` is allowed, as a root devDependency, so `just dev` starts both
+  apps in three lines instead of shell backgrounding with `&` and `wait`.
+- `npm run dev --workspaces` is not an option: it runs workspaces one after
+  another, so the api would start and the web app would never be reached.
 
 ### 4.9 Lint and format
 - ESLint flat config plus Prettier. One shared config each at the repository

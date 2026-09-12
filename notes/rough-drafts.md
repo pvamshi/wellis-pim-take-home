@@ -55,7 +55,32 @@ building against.
 - A rule is never deleted. It is made inactive.
 - Exactly one version of a rule is active at any time.
 
-#### 1.1.7 Rule creation is not gated
+#### 1.1.7 Where rules come from
+- Three sources.
+- The data type of the target data, read out of `legacy_export/EXPORT-NOTES.md`,
+  along with the hints the old team left in there.
+- My own guess: a field of type date is likely to have these kinds of problems,
+  so write the rule and see what it catches.
+- Vamshi's feedback: he names a problem, I derive rules from it.
+
+#### 1.1.8 Why we over-produce rules
+- Writing the code is cheap. So write as many rules as possible and catch as
+  many problems as possible.
+- Whether a rule is *correct* is not decided by us — it is decided by Vamshi's
+  feedback in the UI.
+- That is affordable because one rule covers many rows. A single decision clears
+  all of them at once.
+
+#### 1.1.10 Everything is a field
+- A rule's finding is always about a field: table, row, field, old value, new
+  value. There is no second shape.
+- A relationship is not an exception — it is a value in the database too. A
+  broken link between two tables is a field holding the wrong value, and it
+  renders as a difference like any other.
+- So the whole UI can be built on one uniform before-and-after, and rules that
+  span tables do not need a separate home.
+
+#### 1.1.9 Rule creation is not gated
 - There are not two layers of approval. AI is free to create as many rules as it
   wants, and a new rule runs against the data immediately.
 - The only gate is the UI: Vamshi sees the rules that matched something, and
@@ -79,8 +104,56 @@ building against.
 
 #### 1.2.2 Re-evaluation
 - Rules read the modified data, not a frozen snapshot.
-- After modifications are applied, every rule is checked again against the
-  modified data.
+- Re-evaluation is manual. An "Apply rules" button in the UI runs every rule over
+  the entire dataset again and refreshes what is shown.
+- Nothing re-evaluates automatically on approve. The user decides when.
+
+#### 1.2.0 The UI is decided after the rules exist
+- Order of work: scaffolding, then the backend infrastructure for rules, then the
+  rules themselves, then the UI. The UI can be empty until then.
+- Nobody reads the whole dataset looking for rules before that infrastructure
+  exists.
+- We write the rule catalogue (1.1.1) once there is somewhere to put it, then
+  decide what the UI looks like from what the rules actually produce.
+- Everything in 1.2.4 to 1.2.8 below is how it looks in Vamshi's head today, not
+  a settled design. It gets revisited against the real catalogue.
+
+#### 1.2.4 The rules list
+- A list of rules, sorted by how many rows each one caught, most first.
+- Only rules that caught something appear.
+- Expanding a rule shows every row it caught, with the previous value and the new
+  value side by side.
+
+#### 1.2.5 Approve
+- One button on the rule, not per row.
+- Approving applies the change to every matching row at once.
+
+#### 1.2.6 Decline
+- Declining opens a popup asking for a reason.
+- The reason is optional. The user may decline with no reason at all.
+- If a reason is given, we use it to modify the rule to match the feedback.
+
+#### 1.2.7 Exclude a row
+- Every row carries a cross button that excludes it.
+- Unticked checkbox: that row is declined. It and that rule never go together
+  again, for any version (1.6.2.1). The rule itself is untouched and its other
+  rows stay approvable.
+- Ticked checkbox — "the rule is wrong, this row is the evidence": the row is NOT
+  declined. Instead the whole rule is disabled, `needsReview` goes true, and the
+  reason is recorded against the rule, not the row.
+- That is what makes the revision work. The row stays eligible, so when the new
+  version arrives it proposes the correct value on exactly the row that exposed
+  the bug.
+- Consequence: ticking the checkbox parks the entire rule until the revision
+  workflow produces a new version. Its other pending rows wait. We accept that —
+  a rule known to be wrong should not keep being approved (1.2.8).
+
+#### 1.2.8 We assume a sane operator
+- The end user is one of us, not a customer.
+- So we assume they will not approve a rule while they are waiting on a
+  modification they just asked for. We do not build a guard against it.
+- This is a deliberate simplification, recorded because it is an assumption and
+  not a fact.
 
 #### 1.2.3 Acceptance is final
 - An accepted proposal is settled. We do not revisit it and there is no undo.
@@ -97,19 +170,115 @@ building against.
 - Two kinds of feedback, both given from the UI:
   - Decline this rule, with a reason.
   - Exclude this row from this rule, with a reason.
-- A reason is required on both. There is no feedback without one.
+- A reason is optional. The user may decline or exclude without giving one — we
+  simply learn nothing from it when they do.
 - A workflow reads all the feedback and updates the rule accordingly.
 
 #### 1.5.1 Exclude this row, or change the rule
 - The comment carries a checkbox: modify the rule with this change.
-- Unchecked: this row alone is excluded. The rule is untouched and its other
-  rows can still be approved.
+- Unchecked: this row alone is declined, permanently and across all versions.
+  The rule is untouched and its other rows can still be approved.
+- Checked: the row is left alone and the whole rule is disabled for revision.
+  See 1.2.7.
 - Checked: the change applies to every value this rule touches. The feedback
   workflow produces a new version of the rule.
 - So the checkbox is what separates a one-row carve-out from a rule revision,
   and the user states which one they mean rather than us inferring it.
 - Inferring that intent from the free-text reason is the kind of guess that
   produces a rule which looks clean while quietly carrying carve-outs nobody sees.
+
+## 1.6 Rules database structure
+- Vamshi's structure. Replaces the six-table version I had proposed.
+
+### 1.6.1 Rules: two tables
+- `rule` holds identity. `rule_version` holds the versions.
+- Active/inactive sits on the version, not the rule.
+
+```ts
+type Rule = {
+  ruleId: string
+  ruleName: string
+  description: string
+}
+
+type RuleVersion = {
+  ruleId: string           // FK
+  version: number          // (ruleId, version) is the key the code is written against
+  status: 'active' | 'inactive'
+  needsReview: boolean     // set when the user declines this version
+  reason: string | null    // why they declined it
+}
+```
+
+#### 1.6.1.1 How a version gets revised
+- Declining a rule does three things to its version: status goes inactive,
+  `needsReview` goes true, and the reason is written to `reason`.
+- The AI workflow picks up every version with `needsReview = true`, revises the
+  rule, writes a new version, makes the new version active, and clears
+  `needsReview`.
+- So `needsReview` is the queue the revision workflow reads. Nothing else drives
+  it.
+
+#### 1.6.1.2 A revision may split into two rules
+- The workflow is not limited to writing a new version of the same rule.
+- It may decide the feedback describes a case that deserves its own rule: write a
+  new version of the old rule, narrowed, and create a new rule alongside it for
+  the case that was missed.
+- The AI decides whether the old rule becomes active again.
+- Parking the whole rule on a single row's feedback is therefore the right
+  behaviour, not a cost: one affected row usually means others are affected by
+  the same problem, and re-running the corrected rule catches all of them
+  together.
+
+### 1.6.2 Two tables per legacy table
+- Three legacy sources — patient, intake, consent — and each gets two tables.
+- The data table carries a new id, the legacy id, every column from the export,
+  and `rawData`: exactly what came out of the source, never changed. The other
+  columns are what rules modify.
+- The rule table is the important one. One row per proposed change to one column
+  of one legacy row.
+- `status` is `pending`, `approved` or `declined`.
+
+```ts
+type LegacyPatient = {
+  id: string
+  legacyPatientId: string
+  // ...every column from the export
+  rawData: string          // the original, untouched, forever
+}
+
+type LegacyPatientRule = {
+  legacyPatientId: string
+  ruleId: string
+  version: number
+  column: string
+  previousValue: string | null
+  nextValue: string | null
+  status: 'pending' | 'approved' | 'declined'
+}
+```
+
+- Same shape for `legacy_intake` / `legacy_intake_rule` and `legacy_consent` /
+  `legacy_consent_rule`.
+
+#### 1.6.2.1 A declined row is declined forever
+- Once a row is declined for a rule, that rule never matches that row again — for
+  any version, ever.
+- So the decline is looked up by `(legacyId, ruleId, column)`. The version is
+  recorded on the row for history, but it is not part of that check.
+
+### 1.6.3 Duplicates get their own table
+- Duplicate tracking is separate, not a column on every row.
+- Why: we do not want to pollute every row with information that concerns a few.
+
+### 1.6.4 What the rules screen queries
+- Join `rule`, `rule_version` and the per-table rule table.
+- Show only rules whose version is active and which have at least one row in
+  `pending`. A rule with nothing pending does not appear at all.
+- Approve and decline act on that pending set.
+- If the rule also has rows in `approved`, they show as a second section. So one
+  rule can render two sections: what is waiting, and what was already applied.
+
 
 ## 2. New patient intake
 - Built after legacy migration.

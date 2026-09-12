@@ -10,6 +10,13 @@ README as a stated choice.
   the state machine, and the import logic — are all backend. Test effort goes
   there.
 
+## D3. Rules interacting with each other
+- We do not handle the case where one rule's accepted fix causes another rule to
+  flag the same data as a problem.
+- Why: it is not expected to come up, and building for it now costs ordering,
+  pass structure, or both. Get something basic working first.
+- If it does happen, we address it then.
+
 ## D2. Reversing an accepted modification
 - Once the user accepts a proposal, the change is final. There is no undo, and no
   replay of a rule's earlier version over data it already changed.
