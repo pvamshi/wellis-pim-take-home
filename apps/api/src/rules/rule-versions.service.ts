@@ -43,6 +43,38 @@ function storedReason(reason: string | null | undefined): string | null {
 }
 
 /**
+ * Makes `version` the active version of `ruleId` inside a transaction somebody
+ * else opened, and every other version of that rule inactive.
+ *
+ * Extracted from `RuleVersionsService.activate` below rather than copied,
+ * because the revision workflow (1.5.1) writes a new version and activates it
+ * in one transaction of its own: SQLite runs on one connection, so a nested
+ * `dataSource.transaction` would try to BEGIN twice, and a second copy of these
+ * two updates would give "exactly one version per rule is active" (1.1.8) a
+ * second implementation to keep in step.
+ *
+ * Deactivating comes first so the partial unique index is not violated
+ * part-way through. Neither `needsReview` nor `reason` is touched — clearing
+ * the review queue belongs to the revision workflow, which does it explicitly
+ * on the version it reviewed.
+ */
+export async function activateWithin(
+  manager: EntityManager,
+  ruleId: string,
+  version: number,
+): Promise<void> {
+  const repository = manager.getRepository(RuleVersion);
+  const target = await repository.findOne({ where: { ruleId, version } });
+
+  if (target === null) {
+    throw new UnknownRuleVersionError(ruleId, version);
+  }
+
+  await repository.update({ ruleId, version: Not(version) }, { status: 'inactive' });
+  await repository.update({ ruleId, version }, { status: 'active' });
+}
+
+/**
  * The write path onto `rule_version`.
  *
  * "Exactly one version of a rule is active at any time" (1.1.8) is enforced
@@ -68,18 +100,13 @@ export class RuleVersionsService {
    * Idempotent on the version that is already active. An unknown
    * `(ruleId, version)` throws rather than quietly doing nothing, so a mistyped
    * key cannot leave a rule with no active code.
+   *
+   * The two updates themselves are `activateWithin` above: this method is the
+   * transaction, and a caller already inside one calls that function directly.
    */
   async activate(ruleId: string, version: number): Promise<void> {
     await this.dataSource.transaction(async (manager: EntityManager) => {
-      const repository = manager.getRepository(RuleVersion);
-      const target = await repository.findOne({ where: { ruleId, version } });
-
-      if (target === null) {
-        throw new UnknownRuleVersionError(ruleId, version);
-      }
-
-      await repository.update({ ruleId, version: Not(version) }, { status: 'inactive' });
-      await repository.update({ ruleId, version }, { status: 'active' });
+      await activateWithin(manager, ruleId, version);
     });
   }
 

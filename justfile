@@ -29,6 +29,16 @@ build:
 import *ARGS:
     npm run import -w apps/api -- {{ARGS}}
 
+# The workspace script runs with the working directory at apps/api, which is what
+# makes '../../.env' and a relative `file:` DATABASE_URL resolve the same way
+# `just dev` does. `queue` prints every rule version waiting to be revised;
+# `apply <file.json>` applies one revision. This is the revision workflow's hands
+# on the database and is run by it, not by hand.
+
+# Read the revision queue, or apply one revision
+revise *ARGS:
+    npm run revise -w apps/api -- {{ARGS}}
+
 # --if-present is required: the web app has no test script by design, and its
 # absence must not fail this recipe.
 

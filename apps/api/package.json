@@ -7,6 +7,7 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "import": "nest build && node dist/import/import-legacy.js",
+    "revise": "nest build && node dist/revision/revision-cli.js",
     "test": "vitest run",
     "lint": "eslint ."
   },

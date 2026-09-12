@@ -7,6 +7,7 @@ import { RuleDetailService } from './rule-detail.service';
 import { RuleFindingsService } from './rule-findings.service';
 import { RuleListService } from './rule-list.service';
 import { RuleRegistry } from './rule-registry';
+import { RuleRevisionsService } from './rule-revisions.service';
 import { RuleRowDeclinesService } from './rule-row-declines.service';
 import { RuleRunnerService } from './rule-runner.service';
 import { RuleVersion } from './rule-version.entity';
@@ -68,6 +69,18 @@ import { Rule } from './rule.entity';
  * like every other one, so this is exported too, and it needs no `forFeature`
  * of its own either.
  *
+ * `RuleRevisionsService` is the far end of the same tables: the revision
+ * workflow's read of `needsReview` — which 1.5.1 makes the queue — and the one
+ * write that retires an entry from it. It is here because `rule` and
+ * `rule_version` are this module's, and because clearing `needsReview` had to
+ * live somewhere: `RuleVersionsService.activate` deliberately refuses to do it,
+ * since activating a replacement is not the same event as having revised the
+ * version that asked for one. It injects `RuleRegistry` from this module too,
+ * so a version it is about to activate is checked against the code that key
+ * addresses (1.1.1) before the row exists. It is exported for the command that
+ * drives it — a batch operation run from a terminal, like the import, with no
+ * screen behind it — which is why there is no controller for it.
+ *
  * `RuleDetailService` is the second read of the same set of tables — one
  * expanded rule, its pending rows and its approved rows (1.2.2), each showing
  * before and after (1.2.3). It sits beside `RuleListService` for the reason
@@ -87,6 +100,7 @@ import { Rule } from './rule.entity';
     RuleRowDeclinesService,
     RuleListService,
     RuleDetailService,
+    RuleRevisionsService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -99,6 +113,7 @@ import { Rule } from './rule.entity';
     RuleRowDeclinesService,
     RuleListService,
     RuleDetailService,
+    RuleRevisionsService,
   ],
 })
 export class RulesModule {}
