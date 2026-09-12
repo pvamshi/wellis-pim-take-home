@@ -4,6 +4,7 @@ import { LegacyModule } from '../legacy/legacy.module';
 import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
 import { RuleFindingsService } from './rule-findings.service';
+import { RuleListService } from './rule-list.service';
 import { RuleRegistry } from './rule-registry';
 import { RuleRowDeclinesService } from './rule-row-declines.service';
 import { RuleRunnerService } from './rule-runner.service';
@@ -58,6 +59,13 @@ import { Rule } from './rule.entity';
  * never reach `rule_version` — nor on `RuleApprovalsService`, because a decline
  * is not an approval. It needs no `forFeature` of its own either: the three
  * per-source rule tables come from `LegacyModule`.
+ *
+ * `RuleListService` is the first read of the same set of tables — the rules
+ * screen's list (1.2.1), which joins `rule`, `rule_version` and the three
+ * per-source rule tables. It is here for the reason the writers are: the tables
+ * are this module's. The endpoint that serves it lives in a module of its own
+ * like every other one, so this is exported too, and it needs no `forFeature`
+ * of its own either.
  */
 @Module({
   imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -67,6 +75,7 @@ import { Rule } from './rule.entity';
     RuleFindingsService,
     RuleApprovalsService,
     RuleRowDeclinesService,
+    RuleListService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -77,6 +86,7 @@ import { Rule } from './rule.entity';
     RuleFindingsService,
     RuleApprovalsService,
     RuleRowDeclinesService,
+    RuleListService,
   ],
 })
 export class RulesModule {}

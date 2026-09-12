@@ -7,6 +7,7 @@ import { DuplicatesModule } from './duplicates/duplicates.module';
 import { HealthModule } from './health/health.module';
 import { LegacyImportModule } from './import/legacy-import.module';
 import { LegacyModule } from './legacy/legacy.module';
+import { RulesListModule } from './rules-list/rules-list.module';
 import { RulesModule } from './rules/rules.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { RulesModule } from './rules/rules.module';
     ApplyRulesModule,
     ApproveModule,
     DeclineModule,
+    RulesListModule,
     DuplicatesModule,
   ],
 })
