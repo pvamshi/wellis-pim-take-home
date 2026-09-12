@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ruleCatalogue } from './rule-catalogue';
 import { RuleRegistry } from './rule-registry';
+import { RuleRunnerService } from './rule-runner.service';
 import { RuleVersion } from './rule-version.entity';
 import { RuleVersionsService } from './rule-versions.service';
 import { Rule } from './rule.entity';
@@ -25,13 +26,19 @@ import { Rule } from './rule.entity';
  * an `@Injectable()` of its own, so the catalogue it reads is visible here
  * instead of being a dependency Nest resolves invisibly — and so a test can
  * build one over fake rules with no container at all.
+ *
+ * `RuleRunnerService` is exported because the endpoint behind "Apply rules"
+ * (1.2.10) lives in a module of its own and injects it from here. It needs no
+ * `forFeature` of its own: it reads `rule_version`, which this module already
+ * registers.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([Rule, RuleVersion])],
   providers: [
     RuleVersionsService,
+    RuleRunnerService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
-  exports: [TypeOrmModule, RuleVersionsService, RuleRegistry],
+  exports: [TypeOrmModule, RuleVersionsService, RuleRegistry, RuleRunnerService],
 })
 export class RulesModule {}
