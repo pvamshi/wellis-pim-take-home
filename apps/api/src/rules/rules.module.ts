@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LegacyModule } from '../legacy/legacy.module';
 import { ruleCatalogue } from './rule-catalogue';
+import { RuleFindingsService } from './rule-findings.service';
 import { RuleRegistry } from './rule-registry';
 import { RuleRunnerService } from './rule-runner.service';
 import { RuleVersion } from './rule-version.entity';
@@ -31,14 +33,27 @@ import { Rule } from './rule.entity';
  * (1.2.10) lives in a module of its own and injects it from here. It needs no
  * `forFeature` of its own: it reads `rule_version`, which this module already
  * registers.
+ *
+ * `RuleFindingsService` is the other half of that endpoint — the shared API
+ * that turns a run into rule rows (1.1.3) — so it is exported for the same
+ * reason. It writes the three per-source rule tables, which `LegacyModule`
+ * declares, so this module imports that one; the dependency only runs this way,
+ * because nothing under `legacy/` imports anything from `rules/`.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Rule, RuleVersion])],
+  imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
   providers: [
     RuleVersionsService,
     RuleRunnerService,
+    RuleFindingsService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
-  exports: [TypeOrmModule, RuleVersionsService, RuleRegistry, RuleRunnerService],
+  exports: [
+    TypeOrmModule,
+    RuleVersionsService,
+    RuleRegistry,
+    RuleRunnerService,
+    RuleFindingsService,
+  ],
 })
 export class RulesModule {}
