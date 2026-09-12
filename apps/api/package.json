@@ -6,6 +6,7 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
+    "import": "nest build && node dist/import/import-legacy.js",
     "test": "vitest run",
     "lint": "eslint ."
   },
@@ -15,6 +16,7 @@
     "@nestjs/core": "^12.0.1",
     "@nestjs/platform-express": "^12.0.1",
     "@nestjs/typeorm": "^12.0.1",
+    "csv-parse": "^7.0.2",
     "libsql": "^0.5.29",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

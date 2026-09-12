@@ -20,6 +20,15 @@ dev:
 build:
     npm run build --workspaces --if-present
 
+# The workspace script runs with the working directory at apps/api, which is
+# what makes '../../.env' and a relative `file:` DATABASE_URL resolve the same
+# way `just dev` does. Pass a directory to import an export other than
+# legacy_export/ at the repository root.
+
+# Load legacy_export/ into the legacy tables
+import *ARGS:
+    npm run import -w apps/api -- {{ARGS}}
+
 # --if-present is required: the web app has no test script by design, and its
 # absence must not fail this recipe.
 
