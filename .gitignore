@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Environment files. The example stays tracked.
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sqlite-journal
+data/
+
+# Local, machine-specific agent memory store
+.memcli/
+
+# OS and logs
+.DS_Store
+*.log
+npm-debug.log*
+
+# Machine-local Claude Code settings. `.claude/` itself is committed —
+# the workflow scripts are part of what this project is being judged on.
+.claude/settings.local.json

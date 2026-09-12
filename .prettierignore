@@ -1,0 +1,17 @@
+node_modules
+dist
+build
+coverage
+package-lock.json
+.memcli
+
+# The legacy dataset and the project notes are inputs, not source. Formatting
+# them would rewrite the dataset and the notes, which the brief forbids.
+legacy_export
+notes
+README.md
+ASSIGNMENT.md
+
+# The committed workflow scripts are a record of how the work was directed.
+# `just format` must not rewrite them.
+.claude
