@@ -16,14 +16,26 @@ The import script loads `legacy_export/` into the legacy tables. Identity is the
 legacy id — `legacy_id` for patients, `intake_id` for intakes, and the same idea
 for consents. The only test is whether that id is already in the database.
 
-### 1.0.1 A new id is imported
+### 1.0.1 The import is a bulk operation
+
+Not row by row. Read the whole file, collect its ids, ask in one query which of
+them are already in the database, and insert the remainder in one bulk insert.
+That makes validating a run a matter of comparing counts rather than tracing
+individual rows.
 
 ```gherkin
-Scenario: a patient id not yet in the database
-  Given legacy_patient holds no row with legacy_id "recABC"
-  When the import reads a patients.csv row with legacy_id "recABC"
-  Then a legacy_patient row is created
-  And rawData holds the source row exactly as it arrived
+Scenario: importing a file
+  Given patients.csv holds 2466 rows
+  And legacy_patient already holds 400 of those legacy_ids
+  When the import runs
+  Then one query resolves which ids already exist
+  And 2066 rows are inserted in a single bulk insert
+  And each inserted row's rawData holds its source row exactly as it arrived
+
+Scenario: reporting the run
+  When the import finishes a file
+  Then it reports rows read, rows inserted, and rows skipped
+  And those three numbers reconcile: read = inserted + skipped
 ```
 
 ### 1.0.2 An id already in the database is ignored
@@ -31,15 +43,15 @@ Scenario: a patient id not yet in the database
 ```gherkin
 Scenario: re-running the same file
   Given legacy_patient already holds a row with legacy_id "recABC"
-  When the import reads a patients.csv row with legacy_id "recABC"
-  Then no row is created
+  When the import runs over a file containing legacy_id "recABC"
+  Then that id is excluded from the bulk insert
   And no row is updated
-  And nothing is recorded about the skip
+  And it counts towards skipped, with nothing else recorded about it
 
 Scenario: the same id arriving with different values
   Given legacy_patient holds legacy_id "recABC" with email "a@x.nl"
-  When the import reads a row with legacy_id "recABC" and email "b@x.nl"
-  Then no row is created
+  When the import runs over a file with legacy_id "recABC" and email "b@x.nl"
+  Then that id is excluded from the bulk insert
   And the stored email is still "a@x.nl"
 ```
 
@@ -50,9 +62,13 @@ The values are never compared. The id being present is the whole test.
 ```gherkin
 Scenario: two rows in the file share an id
   Given legacy_patient holds no row with legacy_id "recABC"
-  When the import reads two patients.csv rows both with legacy_id "recABC"
-  Then two legacy_patient rows are created
+  When the import runs over a file with two rows both having legacy_id "recABC"
+  Then both rows are in the bulk insert
+  And two legacy_patient rows are created
 ```
+
+The existing-id check is against the database only. Ids are never de-duplicated
+within the batch being inserted.
 
 Duplicates inside a file are real data. Rules deal with them, not the importer.
 
@@ -212,17 +228,35 @@ Scenario: a rule with both pending and approved rows
 Every row shows `previousValue` and `nextValue` side by side. An ambiguous rule's
 rows show the previous value and the rule's description instead of a new value.
 
-### 1.2.4 Approve acts on the whole rule
+### 1.2.4 Approve works at both levels
+
+Approve and decline are symmetric: both act on a whole rule, and both act on a
+single row. The rule-level button is the one that makes over-producing rules
+cheap (1.1.10); the row-level one is for when most of a rule is right.
 
 ```gherkin
-Scenario: approving a rule
+Scenario: approving a whole rule
   Given rule R7 has 340 pending rows
   When the user presses Approve on R7
-  Then all 340 rows move to approved
+  Then all 340 pending rows move to approved
   And each row's column is updated to its nextValue
+
+Scenario: approving a single row
+  Given rule R7 has 340 pending rows
+  When the user approves the row for patient P-1042
+  Then only that row moves to approved
+  And only that patient's column is updated
+  And R7's other 339 rows stay pending
+
+Scenario: approving the rule after approving rows individually
+  Given rule R7 has 338 pending rows and 2 approved rows
+  When the user presses Approve on R7
+  Then the 338 pending rows move to approved
+  And the 2 already-approved rows are untouched
 ```
 
-One button on the rule, not per row.
+Every row carries both a tick and a cross. A row-level approve needs no reason;
+a row-level decline may carry one (1.2.7).
 
 ### 1.2.5 Applying is one transaction
 
