@@ -1,15 +1,15 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import type { LegacySourceTable } from '../legacy/legacy-source-table';
 
 /**
- * Which legacy source the two ids belong to. SQLite has no enum type and
- * `rule-version.entity.ts` and `legacy-rule.entity.ts` already set the
- * convention that the union is TypeScript's job, not the column's.
+ * Which legacy source the two ids belong to.
  *
- * The same three values name the tables in 1.1.14's `RuleResponse`. Whether
- * they become one shared union is the rule-interface task's call, not this
- * one's.
+ * The same three values name the tables in 1.1.14's `RuleResponse`, so they are
+ * now written down once, in `legacy/legacy-source-table.ts`, and this is an
+ * alias of that union. The name stays because this column's values are read as
+ * a duplicate's source, not as a finding's table.
  */
-export type DuplicateSourceTable = 'patient' | 'intake' | 'consent';
+export type DuplicateSourceTable = LegacySourceTable;
 
 /**
  * A duplicate link, as the "Database structure — Duplicates" section describes
