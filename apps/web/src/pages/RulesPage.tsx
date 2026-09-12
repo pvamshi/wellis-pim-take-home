@@ -14,6 +14,7 @@ import {
 } from '@mantine/core';
 import { ApiError, getRules, rulesUrl } from '../api/client';
 import type { RuleListEntry } from '../api/types';
+import { RuleDetailPanel } from '../components/RuleDetailPanel';
 
 type RequestState =
   | { kind: 'loading' }
@@ -36,6 +37,7 @@ type RequestState =
 export function RulesPage() {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [lastOutcome, setLastOutcome] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -67,6 +69,15 @@ export function RulesPage() {
     setAttempt((n) => n + 1);
   }
 
+  // The same re-read without the loading state. A press inside an expanded rule
+  // changes what belongs on this list — a rule with nothing left pending leaves
+  // it (1.2.1) — but blanking the list to a spinner would collapse the
+  // accordion under the user's hands, so the rows are replaced when the new
+  // ones arrive and the screen does not flicker in between.
+  function refresh() {
+    setAttempt((n) => n + 1);
+  }
+
   return (
     <Container size="md" py="xl">
       <Stack gap="lg">
@@ -86,6 +97,23 @@ export function RulesPage() {
           </Group>
         )}
 
+        {/*
+          What the last press did. It is here rather than inside the panel
+          because a rule-level Approve or Decline takes the rule off this list
+          (1.2.1) and its panel with it — this line is what is left to show for
+          it. It reports the press; the list below reports the state.
+        */}
+        {lastOutcome !== null && (
+          <Alert
+            color="blue"
+            title="Last decision"
+            withCloseButton
+            onClose={() => setLastOutcome(null)}
+          >
+            <Text size="sm">{lastOutcome}</Text>
+          </Alert>
+        )}
+
         {state.kind === 'loaded' && state.rules.length === 0 && (
           <Stack gap="xs">
             <Text fw={600}>Nothing is pending.</Text>
@@ -97,7 +125,14 @@ export function RulesPage() {
         )}
 
         {state.kind === 'loaded' && state.rules.length > 0 && (
-          <Accordion variant="separated">
+          /*
+            keepMounted={false} is load-bearing, not styling. Mantine keeps
+            collapsed panels mounted by default, which would mount every panel
+            on load and fire one GET /rules/:ruleId per listed rule. Unmounted
+            collapsed panels mean the detail is read when a rule is expanded,
+            and re-read when it is expanded again.
+          */
+          <Accordion variant="separated" keepMounted={false}>
             {/*
               Keyed by rule id, which cannot repeat: exactly one version of a
               rule is active at a time (1.1.8), and the list is built from the
@@ -118,18 +153,23 @@ export function RulesPage() {
                 </Accordion.Control>
                 <Accordion.Panel>
                   {/*
-                    Only what the list call already carries. The pending and
-                    approved sections, the before and after values per row and
-                    the row actions are T6.2's, and read GET /rules/:ruleId —
-                    this page issues no second request.
+                    The sections, the values and the row actions are the
+                    panel's, read from GET /rules/:ruleId when this item is
+                    expanded. This page still issues exactly one request of its
+                    own, for the list.
+
+                    A press inside the panel is reported here and re-reads the
+                    list, because a decision can change which rules belong on
+                    it: a rule with nothing left pending, or one whose version
+                    has just been parked, leaves (1.2.1).
                   */}
-                  <Stack gap={4}>
-                    <Text size="sm">
-                      Rule id: <Code>{rule.ruleId}</Code>
-                    </Text>
-                    <Text size="sm">Active version: {rule.version}</Text>
-                    <Text size="sm">Rows awaiting a decision: {rule.pending}</Text>
-                  </Stack>
+                  <RuleDetailPanel
+                    ruleId={rule.ruleId}
+                    onChanged={(outcome) => {
+                      setLastOutcome(outcome);
+                      refresh();
+                    }}
+                  />
                 </Accordion.Panel>
               </Accordion.Item>
             ))}
