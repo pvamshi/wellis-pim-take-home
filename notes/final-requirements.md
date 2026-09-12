@@ -121,6 +121,43 @@ JSON and writes the rows into the rule table. The same layer applies accepted
 changes (1.2.5). Persistence, the declined-row skip, and the apply transaction
 all live in that one place — never in generated rule code.
 
+### 1.1.14 The runner calls rules blindly, and a rule answers in batches
+
+The runner knows nothing about any rule. It calls every one of them and takes
+whatever comes back.
+
+A rule is called **once**, not once per row. It reads whole tables and returns
+every row that needs updating in one response.
+
+```gherkin
+Scenario: a rule returns many changes at once
+  Given 340 patient rows have a phone number in the wrong format
+  When the runner calls the phone rule
+  Then it is called exactly once
+  And it returns 340 changes in a single response
+  And each change carries table, row, column, previousValue, nextValue
+```
+
+The response is what the persistence layer turns into rule rows. The runner does
+no per-row work of its own.
+
+Ambiguity sits beside the updates, not inside each one — one flag for the whole
+response, which is what 1.1.12 means by rule-wide. When it is true, every update
+carries a `prev` and no `next`.
+
+```ts
+type RuleResponse = {
+  ambiguity: boolean
+  updates: {
+    table: 'patient' | 'intake' | 'consent'
+    legacyId: string
+    column: string
+    prev: string | null
+    next: string | null    // null throughout when ambiguity is true
+  }[]
+}
+```
+
 ### 1.1.4 A rule is atomic
 
 One rule, one fix. Several fixes are never clubbed into a single rule. A rule is
@@ -190,6 +227,34 @@ and costs nothing.
 Ambiguity is a property of the rule, not of the row. `rule.ambiguous` says which.
 An ambiguous rule's findings carry `previousValue` and no `nextValue`, and the
 rule's own description is the explanation the human reads.
+
+### 1.1.13 Duplicates are a link, not a value
+
+A duplicate says one thing: id X is a duplicate of id Y. That is all the
+duplicates table holds. It does not fit — and does not need to fit — the
+field-shaped finding of 1.1.7.
+
+Anything that has to move from X to Y is an ordinary field change on Y, written
+as a normal rule row with duplication as its reason. So merging needs no new
+mechanism; it reuses 1.1.7 and 1.2.5 as they are.
+
+```gherkin
+Scenario: a duplicate is found
+  Given patients P-100 and P-450 are the same person
+  When the duplicate rule runs
+  Then the duplicates table records P-450 as a duplicate of P-100
+  And no column of either row is changed by that record alone
+
+Scenario: a duplicate needs merging
+  Given P-450 is recorded as a duplicate of P-100
+  And P-450 holds a phone number that P-100 lacks
+  When the merge is proposed
+  Then it is an ordinary rule row against P-100's phone column
+  And its reason names the duplication
+```
+
+Retiring X itself is out of scope. Patient rows will gain a status later, and
+only then can X be marked declined — see `deferred.md` D5.
 
 ---
 
@@ -458,6 +523,20 @@ and is never written after import.
 
 ## Duplicates
 
-One table tracking duplicates across all three legacy tables, kept separate so
-duplicate information does not pollute every row. Its shape is open — see
-`unresolved-questions.md` 1.6.3.a.
+One table across all three legacy sources, kept separate so duplicate
+information does not pollute every row.
+
+```ts
+type Duplicate = {
+  id: string
+  sourceTable: 'patient' | 'intake' | 'consent'
+  duplicateLegacyId: string   // X
+  canonicalLegacyId: string   // Y — the one that survives
+  ruleId: string
+  version: number
+}
+```
+
+It records a relationship and nothing else. Any data that has to move from X to
+Y is an ordinary rule row against Y (1.1.13). Marking X itself retired waits on
+a status column that legacy rows do not have yet.

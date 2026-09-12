@@ -20,14 +20,6 @@ Agents append here. Agents never resolve anything here.
   fixing it.
 - This is the next piece of backend work, so it blocks.
 
-## 1.6.3.a The duplicates table has no shape
-- One table tracking duplicates across all three legacy tables. Settled.
-- Open: what a row in it looks like. A duplicate is a claim about two or more
-  rows together — "these three patients are the same person" — so it has no
-  column and no new value, which is the shape every other rule row has.
-- Open: what resolving one means. Pick a survivor and discard the rest? Merge
-  field by field? Just mark them linked and leave the data alone?
-
 ## 4.5.a Where the two apps are deployed
 - §4.5 settles how the database gets to production — upload the SQLite file to
   Turso — but no host is chosen for the api or the web app.
