@@ -7,15 +7,27 @@ import {
   declineRow,
   declineRule,
   getRuleDetail,
+  reviseFromRow,
   ruleUrl,
 } from '../api/client';
 import type { RuleDetailResponse, RuleDetailRow, RuleRowAddress } from '../api/types';
+import { DeclineDialog, type DeclineDecision } from './DeclineDialog';
 import { RuleRowsTable } from './RuleRowsTable';
 
 type RequestState =
   | { kind: 'loading' }
   | { kind: 'loaded'; detail: RuleDetailResponse }
   | { kind: 'failed'; error: ApiError };
+
+/**
+ * The cross that is waiting on the dialog, or null while none is.
+ *
+ * The row cross resolves its address when it is pressed rather than when it is
+ * confirmed, so the press decides the row the operator was looking at even if
+ * the detail were re-read underneath the open dialog.
+ */
+type DeclineTarget =
+  { kind: 'rule' } | { kind: 'row'; row: RuleDetailRow; address: RuleRowAddress };
 
 export interface RuleDetailPanelProps {
   readonly ruleId: string;
@@ -58,12 +70,16 @@ function rowCount(n: number): string {
  * - **A failed press changes nothing on the screen.** The error is shown and
  *   the row stays exactly where it was, because the panel never moves a row on
  *   its own — only a re-read does.
+ * - **Neither cross posts on its own.** Both open `DeclineDialog`, and its two
+ *   answers — the optional reason, and the "modify the rule" tick — decide
+ *   which of three presses this panel then makes (1.2.6, 1.2.7, 1.2.8).
  */
 export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [declining, setDeclining] = useState<DeclineTarget | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,16 +189,14 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
     });
   }
 
+  // Neither cross posts anything. Both open the dialog, which is where the
+  // reason is typed and — for a row — where the two opposite outcomes of the
+  // "modify the rule" tick are chosen between (1.2.6, 1.2.7, 1.2.8).
   function onRowDecline(row: RuleDetailRow) {
     const address = addressOf(row);
     if (address === null) return;
 
-    press(async () => {
-      const report = await declineRow(ruleId, address);
-      return report.declined === 0
-        ? `Nothing to decline on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
-        : `Declined ${address.table} ${address.legacyId}, ${address.column} of ${detail.ruleName}. It will never be proposed again.`;
-    });
+    setDeclining({ kind: 'row', row, address });
   }
 
   function onRuleApprove() {
@@ -195,11 +209,59 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
   }
 
   function onRuleDecline() {
+    setDeclining({ kind: 'rule' });
+  }
+
+  /**
+   * The press the dialog was opened for, with what the operator answered.
+   *
+   * The tick is what chooses between the two row routes and is never sent as a
+   * field: unticked declines the row (1.2.7), ticked parks the rule and leaves
+   * the row pending (1.2.8). The backend serves them separately for exactly
+   * that reason, and a screen that decided it in a body would undo it.
+   *
+   * The reason goes with the two presses that park a version and store it
+   * there (1.2.6, 1.2.8). The unticked cross sends none: the dialog asks for no
+   * reason on that branch, so there is none to pass on.
+   *
+   * The dialog closes first. A failed press shows the alert above and changes
+   * nothing else, and a modal left open over it would hide the only thing the
+   * operator needs to read; the cost is a typed reason lost on a failure, which
+   * is one re-open (1.2.12).
+   */
+  function runDecline({ reason, modifyRule }: DeclineDecision) {
+    const target = declining;
+    if (target === null) return;
+
+    setDeclining(null);
+
+    if (target.kind === 'rule') {
+      press(async () => {
+        const report = await declineRule(ruleId, reason);
+        return report.version === null
+          ? `${detail.ruleName} has no active version, so nothing was declined.`
+          : `Declined ${detail.ruleName} v${report.version}. It leaves the list until a new version is written.`;
+      });
+      return;
+    }
+
+    const { address } = target;
+
+    if (modifyRule) {
+      press(async () => {
+        const report = await reviseFromRow(ruleId, address, reason);
+        return report.version === null
+          ? `${detail.ruleName} has no active version, so nothing was sent for revision.`
+          : `Sent ${detail.ruleName} v${report.version} for revision, from ${address.table} ${address.legacyId}, ${address.column}. That row stays pending, so the next version proposes on it.`;
+      });
+      return;
+    }
+
     press(async () => {
-      const report = await declineRule(ruleId);
-      return report.version === null
-        ? `${detail.ruleName} has no active version, so nothing was declined.`
-        : `Declined ${detail.ruleName} v${report.version}. It leaves the list until a new version is written.`;
+      const report = await declineRow(ruleId, address);
+      return report.declined === 0
+        ? `Nothing to decline on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
+        : `Declined ${address.table} ${address.legacyId}, ${address.column} of ${detail.ruleName}. It will never be proposed again.`;
     });
   }
 
@@ -300,6 +362,29 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
         </Button>
         {busy && <Loader size="sm" />}
       </Group>
+
+      {/*
+        Mounted only while a cross is waiting on an answer, and keyed by which
+        cross it was. Both together are what make every open start from an
+        empty reason and an unticked box: a dialog that stayed mounted would
+        carry the last press's typed reason to the next row.
+      */}
+      {declining !== null && (
+        <DeclineDialog
+          key={
+            declining.kind === 'rule'
+              ? 'rule'
+              : `${declining.address.table}:${declining.address.legacyId}:${declining.address.column}`
+          }
+          target={
+            declining.kind === 'rule'
+              ? { kind: 'rule', ruleName: detail.ruleName }
+              : { kind: 'row', ruleName: detail.ruleName, row: declining.row }
+          }
+          onCancel={() => setDeclining(null)}
+          onConfirm={runDecline}
+        />
+      )}
     </Stack>
   );
 }

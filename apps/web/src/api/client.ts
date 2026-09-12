@@ -1,6 +1,7 @@
 import type {
   ApproveReport,
   HealthResponse,
+  ReviseFromRowReport,
   RowDeclineReport,
   RuleDeclineReport,
   RuleDetailResponse,
@@ -191,28 +192,75 @@ export async function approveRow(ruleId: string, row: RuleRowAddress): Promise<A
 }
 
 /**
- * Decline on a whole rule (1.2.6): its active version goes inactive with
- * `needsReview` true, so the rule leaves the list (1.2.1).
+ * The reason, as a body field, or nothing at all when the user typed none.
  *
- * No body, which the backend reads as 1.2.6's second scenario — declining with
- * no reason. The optional-reason dialog is T6.3's, and until it exists there is
- * no reason for this call to carry.
+ * The two presses that park a version take an optional reason (1.2.6, 1.2.8)
+ * and an empty dialog is the same press as a dialog nobody typed into, so a
+ * blank or whitespace-only box is omitted from the request entirely rather than
+ * sent as `""`. "No reason" is then one state on the wire.
+ *
+ * It does not trim what it does send. Trimming is how a reason is *stored* and
+ * the backend's `storedReason` is the one place that decides it; trimming here
+ * as well would make this file a second definition of the same rule, free to
+ * drift. All this decides is whether `reason` appears at all.
  */
-export async function declineRule(ruleId: string): Promise<RuleDeclineReport> {
-  return await requestJson<RuleDeclineReport>(ruleUrl(ruleId, '/decline'), { method: 'POST' });
+function reasonField(reason?: string): { reason: string } | undefined {
+  return reason !== undefined && reason.trim() !== '' ? { reason } : undefined;
 }
 
 /**
- * The cross on one row, unticked (1.2.7): that row is declined forever and the
- * rule is untouched.
+ * Decline on a whole rule (1.2.6): its active version goes inactive with
+ * `needsReview` true and the reason, if the dialog collected one, is stored on
+ * that version, so the rule leaves the list (1.2.1).
  *
- * No reason and no "modify the rule" tick. Both are T6.3's — the ticked cross
- * is a different route (`/rows/revise`), so it cannot be reached by adding a
- * flag to this body.
+ * With no reason there is no body at all, which the backend reads as 1.2.6's
+ * second scenario — declined, with nothing recorded in place of a reason.
+ */
+export async function declineRule(ruleId: string, reason?: string): Promise<RuleDeclineReport> {
+  return await requestJson<RuleDeclineReport>(ruleUrl(ruleId, '/decline'), {
+    method: 'POST',
+    body: reasonField(reason),
+  });
+}
+
+/**
+ * The cross on one row with "modify the rule" unticked (1.2.7): that row is
+ * declined forever and the rule is untouched.
+ *
+ * The tick is not a field of this body. It chooses between this call and
+ * `reviseFromRow` below, because the two presses write different tables and the
+ * backend deliberately serves them as two routes so that no boolean from a
+ * screen can decide which one is written.
+ *
+ * Still no reason. The endpoint takes one (1.2.7) and the dialog never collects
+ * one for this press: the reason box it shows is the one stored against a
+ * version (1.2.6, 1.2.8), so an unticked cross has nothing to send.
  */
 export async function declineRow(ruleId: string, row: RuleRowAddress): Promise<RowDeclineReport> {
   return await requestJson<RowDeclineReport>(ruleUrl(ruleId, '/rows/decline'), {
     method: 'POST',
     body: row,
+  });
+}
+
+/**
+ * The same cross with "modify the rule" ticked (1.2.8): the rule's active
+ * version is parked for revision with the reason stored against it, and the row
+ * that exposed the bug is deliberately left pending so the version that
+ * replaces it proposes on that very row.
+ *
+ * The body is `declineRow`'s address — it is the same button on the same row —
+ * plus the reason the dialog collected, which this press stores on the version
+ * it parks. Only the route differs between the two, and the route is the whole
+ * difference.
+ */
+export async function reviseFromRow(
+  ruleId: string,
+  row: RuleRowAddress,
+  reason?: string,
+): Promise<ReviseFromRowReport> {
+  return await requestJson<ReviseFromRowReport>(ruleUrl(ruleId, '/rows/revise'), {
+    method: 'POST',
+    body: { ...row, ...reasonField(reason) },
   });
 }

@@ -155,3 +155,35 @@ export interface RowDeclineReport {
   /** The reason stored on that row, or null when none was given (1.2.7). */
   readonly reason: string | null;
 }
+
+/**
+ * What one press of the cross with "modify the rule" ticked did (1.2.8).
+ * Informational.
+ *
+ * A restatement of the backend's `ReviseFromRowResponse`
+ * (`apps/api/src/decline/decline.controller.ts`), exactly as the reports above
+ * restate theirs: the backend owns the shape, and if the two disagree this file
+ * is the bug.
+ *
+ * Written out flat rather than as `extends RuleDeclineReport`, although the
+ * backend declares it that way. The two are the same three fields plus `row`,
+ * and the contract spec that holds this copy to the endpoint reads these
+ * declarations as text — an inherited field would not be in the text it reads,
+ * so a field that moved would stop being checked.
+ *
+ * This press decides no row at all, which is the whole of 1.2.8: `row` is the
+ * address that was sent, echoed back so the caller can see the press it made is
+ * the press that landed. The row it names is still pending.
+ */
+export interface ReviseFromRowReport {
+  readonly ruleId: string;
+  /**
+   * The version that was parked — the rule's active version, made inactive with
+   * `needsReview` true. Null when there was no active version to park.
+   */
+  readonly version: number | null;
+  /** The reason stored on that version, or null when none was given (1.2.8). */
+  readonly reason: string | null;
+  /** The address the press named, echoed back. Nothing was written from it. */
+  readonly row: RuleRowAddress;
+}
