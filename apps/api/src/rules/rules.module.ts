@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LegacyModule } from '../legacy/legacy.module';
+import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
 import { RuleFindingsService } from './rule-findings.service';
 import { RuleRegistry } from './rule-registry';
@@ -39,6 +40,15 @@ import { Rule } from './rule.entity';
  * reason. It writes the three per-source rule tables, which `LegacyModule`
  * declares, so this module imports that one; the dependency only runs this way,
  * because nothing under `legacy/` imports anything from `rules/`.
+ *
+ * `RuleApprovalsService` is the rest of that same sentence: 1.1.3 puts the
+ * apply transaction in the layer that persists findings, so approving lives
+ * beside writing them rather than behind the endpoint. It is exported because
+ * the approve endpoints (1.2.4) live in a module of their own, exactly as the
+ * runner and the findings writer already do — the HTTP surface stays out of the
+ * module that owns the rules tables. It needs no `forFeature` of its own: it
+ * reads `rule_version` from here, and the legacy data and rule tables from
+ * `LegacyModule`.
  */
 @Module({
   imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -46,6 +56,7 @@ import { Rule } from './rule.entity';
     RuleVersionsService,
     RuleRunnerService,
     RuleFindingsService,
+    RuleApprovalsService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -54,6 +65,7 @@ import { Rule } from './rule.entity';
     RuleRegistry,
     RuleRunnerService,
     RuleFindingsService,
+    RuleApprovalsService,
   ],
 })
 export class RulesModule {}
