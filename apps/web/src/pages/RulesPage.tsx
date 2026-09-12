@@ -12,14 +12,40 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { ApiError, getRules, rulesUrl } from '../api/client';
-import type { RuleListEntry } from '../api/types';
+import { ApiError, applyRules, applyRulesUrl, getRules, rulesUrl } from '../api/client';
+import type { ApplyRulesTotals, RuleListEntry } from '../api/types';
 import { RuleDetailPanel } from '../components/RuleDetailPanel';
 
 type RequestState =
   | { kind: 'loading' }
   | { kind: 'loaded'; rules: RuleListEntry[] }
   | { kind: 'failed'; error: ApiError };
+
+/** How many of a thing, in words that read the same for one as for many. */
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? `1 ${one}` : `${n} ${many}`;
+}
+
+/**
+ * What a run did, in one line, built from the endpoint's totals and nothing
+ * else.
+ *
+ * The counters reconcile — `found = declined + repeated + written` — so this
+ * reads as one sentence about one number rather than four unrelated figures.
+ * A run that called nothing is its own sentence: zero of everything is true but
+ * says nothing about why, and "no active version" is the only way it happens.
+ */
+function runSummary(totals: ApplyRulesTotals): string {
+  if (totals.versionsRun === 0) {
+    return 'No rule version is active, so nothing ran and nothing was found.';
+  }
+
+  return (
+    `Ran ${plural(totals.versionsRun, 'rule version', 'rule versions')} against the whole dataset: ` +
+    `${plural(totals.found, 'finding', 'findings')} — ${totals.written} written as new pending ` +
+    `rows, ${totals.repeated} already recorded, ${totals.declined} skipped as declined.`
+  );
+}
 
 /**
  * The rules screen (1.2.1): every rule whose active version has rows waiting
@@ -38,6 +64,14 @@ export function RulesPage() {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
+  // The run: whether one is in flight, what the last one did, and why the last
+  // one did not finish. Separate from `lastOutcome`, which is about a decision.
+  const [running, setRunning] = useState(false);
+  const [lastRun, setLastRun] = useState<string | null>(null);
+  const [runError, setRunError] = useState<ApiError | null>(null);
+  // Bumped by a finished run, and part of every open panel's key, which is how
+  // the rows inside an expanded rule are re-read as well as the list.
+  const [runs, setRuns] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -78,15 +112,71 @@ export function RulesPage() {
     setAttempt((n) => n + 1);
   }
 
+  /**
+   * "Apply rules" (1.2.10): every active rule version runs against the entire
+   * dataset, then the screen refreshes from the results.
+   *
+   * Four things the code does not say on its own:
+   *
+   * - **The press sends nothing.** Which rules run is decided by `rule_version`
+   *   rows, so no state on this screen can narrow a run.
+   * - **The refresh is both halves of the screen.** `refresh()` re-reads the
+   *   list, and the run counter in each panel's key remounts an expanded rule so
+   *   its rows are re-read too. A list-only refresh would leave an open rule
+   *   showing what it held before the run.
+   * - **The report is never written into state.** It builds the line below and
+   *   nothing else; the rows come from the re-read, as they do after every other
+   *   press on this screen.
+   * - **A failed run refreshes nothing and claims nothing.** A response can be
+   *   lost after a run that already committed, so the alert says only that the
+   *   screen was not refreshed. Pressing again is safe: a repeat run records
+   *   nothing new.
+   */
+  function onApplyRules() {
+    setRunning(true);
+    setRunError(null);
+    // The last decision described the state before this run, so it goes.
+    setLastOutcome(null);
+
+    applyRules()
+      .then((report) => {
+        setLastRun(runSummary(report.totals));
+        setRuns((n) => n + 1);
+        refresh();
+      })
+      .catch((cause: unknown) => {
+        setRunError(
+          cause instanceof ApiError ? cause : new ApiError(String(cause), null, applyRulesUrl),
+        );
+      })
+      .finally(() => setRunning(false));
+  }
+
   return (
     <Container size="md" py="xl">
       <Stack gap="lg">
-        <Stack gap={4}>
-          <Title order={1}>Rules</Title>
-          <Text size="sm" c="dimmed">
-            Rules with rows waiting for a decision, the largest first.
-          </Text>
-        </Stack>
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <Stack gap={4}>
+            <Title order={1}>Rules</Title>
+            <Text size="sm" c="dimmed">
+              Rules with rows waiting for a decision, the largest first.
+            </Text>
+          </Stack>
+          {/*
+            Re-evaluation is manual and this is the only thing that starts one
+            (1.2.10). It lives on this screen because this is the screen that
+            refreshes from the results, and because the app has no nav chrome to
+            put it in.
+
+            No confirmation step: a run decides nothing — every finding lands
+            pending — and the operator is one of us (1.2.12). While a run is in
+            flight the button is simply a disabled spinner, which is the whole
+            of the progress reporting.
+          */}
+          <Button onClick={onApplyRules} loading={running} disabled={running}>
+            Apply rules
+          </Button>
+        </Group>
 
         {state.kind === 'loading' && (
           <Group gap="sm">
@@ -111,6 +201,39 @@ export function RulesPage() {
             onClose={() => setLastOutcome(null)}
           >
             <Text size="sm">{lastOutcome}</Text>
+          </Alert>
+        )}
+
+        {/*
+          What the last run did, from the endpoint's totals. It is beside the
+          decision line rather than inside it because the two answer different
+          questions: this one says what the run found, that one says what a
+          press decided.
+        */}
+        {lastRun !== null && (
+          <Alert color="blue" title="Last run" withCloseButton onClose={() => setLastRun(null)}>
+            <Text size="sm">{lastRun}</Text>
+          </Alert>
+        )}
+
+        {runError !== null && (
+          <Alert color="red" title="The run did not finish">
+            <Stack gap="xs">
+              <Text size="sm">{runError.message}</Text>
+              {runError.status !== null && <Text size="sm">HTTP status: {runError.status}</Text>}
+              <Text size="sm">
+                URL tried: <Code>{runError.url}</Code>
+              </Text>
+              {/*
+                Deliberately silent about the database. A response can be lost
+                after a run that committed, so "nothing was written" would be a
+                claim this screen cannot make.
+              */}
+              <Text size="sm">
+                The screen was not refreshed, so what is below is from before the press. Press Apply
+                rules again — a repeat run records nothing new.
+              </Text>
+            </Stack>
           </Alert>
         )}
 
@@ -163,7 +286,16 @@ export function RulesPage() {
                     it: a rule with nothing left pending, or one whose version
                     has just been parked, leaves (1.2.1).
                   */}
+                  {/*
+                    Keyed by the rule id and the run counter, so a finished run
+                    remounts an open panel and its rows are read again — a run
+                    changes what is inside an expanded rule, and the panel reads
+                    only on mount (1.2.10). The key is here rather than on the
+                    accordion item so the item the user has open stays open.
+                    Collapsed panels are not mounted at all.
+                  */}
                   <RuleDetailPanel
+                    key={`${rule.ruleId}:${runs}`}
                     ruleId={rule.ruleId}
                     onChanged={(outcome) => {
                       setLastOutcome(outcome);
@@ -189,8 +321,8 @@ export function RulesPage() {
               <Group>
                 {/*
                   Retry belongs to the failure and nowhere else. Re-reading a
-                  list that loaded is what "Apply rules" does after a run, and
-                  that button is T6.4's.
+                  list that loaded is what "Apply rules" above does after a run,
+                  and it runs the rules first rather than only re-reading.
                 */}
                 <Button onClick={retry} color="red" variant="light">
                   Retry

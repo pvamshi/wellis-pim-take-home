@@ -1,4 +1,5 @@
 import type {
+  ApplyRulesReport,
   ApproveReport,
   HealthResponse,
   ReviseFromRowReport,
@@ -25,6 +26,12 @@ export const healthUrl = `${apiBaseUrl}/health`;
 
 /** The rules-list URL (1.2.1). Built here for the same reason as `healthUrl`. */
 export const rulesUrl = `${apiBaseUrl}/rules`;
+
+/**
+ * The URL "Apply rules" posts to (1.2.10). A fixed address with nothing in it
+ * that varies, so it is built here beside the others rather than by a function.
+ */
+export const applyRulesUrl = `${rulesUrl}/apply`;
 
 /**
  * The URL of one expanded rule and of the presses against it (1.2.2, 1.2.4,
@@ -171,6 +178,22 @@ export async function getRuleDetail(
   signal?: AbortSignal,
 ): Promise<RuleDetailResponse> {
   return await requestJson<RuleDetailResponse>(ruleUrl(ruleId), { signal });
+}
+
+/**
+ * The "Apply rules" press (1.2.10): every active rule version runs against the
+ * entire dataset and what it finds is written as pending rows.
+ *
+ * No arguments and no body at all, matching the endpoint. Which rules run is
+ * decided by `rule_version` rows, never by the caller, so there is nothing on
+ * the screen that could narrow a run even by accident.
+ *
+ * The report is informational. The screen refreshes by re-reading the list and
+ * the expanded rule, because its truth is what the backend says it is — the
+ * same rule every press in this file already follows.
+ */
+export async function applyRules(): Promise<ApplyRulesReport> {
+  return await requestJson<ApplyRulesReport>(applyRulesUrl, { method: 'POST' });
 }
 
 /**

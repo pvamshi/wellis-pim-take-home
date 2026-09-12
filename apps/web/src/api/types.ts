@@ -187,3 +187,59 @@ export interface ReviseFromRowReport {
   /** The address the press named, echoed back. Nothing was written from it. */
   readonly row: RuleRowAddress;
 }
+
+/**
+ * What one active rule version's share of a run did (1.2.10).
+ *
+ * A restatement of the backend's `RuleFindingsReportEntry`
+ * (`apps/api/src/rules/rule-findings.service.ts`), exactly as the reports above
+ * restate theirs: the backend owns the shape, and if the two disagree this file
+ * is the bug.
+ *
+ * The four counters reconcile by construction — `found = declined + repeated +
+ * written` — so a run is checked by comparing counts rather than by tracing
+ * rows.
+ */
+export interface ApplyRulesRuleLine {
+  readonly ruleId: string;
+  /** The active version that ran, and so the version its rows belong to. */
+  readonly version: number;
+  /** Updates the rule returned. */
+  readonly found: number;
+  /** Dropped because the row is declined for this rule and column (1.2.9). */
+  readonly declined: number;
+  /** Dropped because that exact address is already recorded. */
+  readonly repeated: number;
+  /** Written as new pending rows. */
+  readonly written: number;
+}
+
+/**
+ * The same four counters summed over the whole run, plus how many versions ran.
+ *
+ * Written out flat rather than inline inside `ApplyRulesReport`, although the
+ * backend declares it that way. The contract spec that holds this copy to the
+ * endpoint reads these declarations as text, one field to a line — a nested
+ * object literal spanning lines is not something it can read.
+ */
+export interface ApplyRulesTotals {
+  /** Active versions the run called. Zero when no version is active at all. */
+  readonly versionsRun: number;
+  readonly found: number;
+  readonly declined: number;
+  readonly repeated: number;
+  readonly written: number;
+}
+
+/**
+ * What one press of "Apply rules" did (1.2.10). Informational.
+ *
+ * The screen refreshes by re-reading the list and the expanded rule, never from
+ * this body — it is what the one-line run summary above the list is built from,
+ * exactly as the press reports above are.
+ */
+export interface ApplyRulesReport {
+  /** One line per active version, in the order the runner called them. */
+  readonly rules: ApplyRulesRuleLine[];
+  readonly totals: ApplyRulesTotals;
+}
