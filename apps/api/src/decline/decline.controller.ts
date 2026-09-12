@@ -67,6 +67,57 @@ export interface DeclineRowRequest {
 }
 
 /**
+ * What one press of the row-level cross with "modify the rule" ticked did
+ * (1.2.8).
+ *
+ * Two `version` fields, and they answer two different questions:
+ *
+ * - the top-level one is the version that was **parked** — the rule's active
+ *   version, which this press made inactive, or null when the rule had no
+ *   active version for the press to act on;
+ * - `row.version` is the version the screen's finding carried, echoed back
+ *   exactly as it was sent.
+ *
+ * They are usually the same number and are not required to be: a finding on the
+ * screen may have been written by a version that has since been superseded, and
+ * 1.2.8 parks "R7's active version" either way.
+ *
+ * `row` is an echo and nothing more. Nothing is written from it — see
+ * `reviseFromRow` below — so it is here to let the caller check that the press
+ * it made is the press that landed, not to report a change.
+ *
+ * Informational, like every other press in this codebase. The screen refreshes
+ * by re-reading the rules list (1.2.1), not from this body — a parked rule
+ * leaves that list, because the list is the active versions.
+ */
+export interface ReviseFromRowResponse extends RuleDeclineReport {
+  /** The address the press named: a rule row's key, minus the rule id the URL carries. */
+  readonly row: Omit<RuleRowDeclineAddress, 'ruleId'>;
+}
+
+/**
+ * The body of a ticked cross: the row that exposed the bug, and the reason if
+ * the user gave one.
+ *
+ * The same four address fields the unticked cross sends, because it is the same
+ * button on the same row — the tick is what the route differs by, not the body.
+ *
+ * Declared for the reader, not for a validator. Nothing coerces a request into
+ * this shape; `readRowAddress` below checks each field and says so when one is
+ * wrong, and `readReason` checks the reason exactly as it does for the other
+ * two presses.
+ */
+export interface ReviseFromRowRequest {
+  table: LegacySourceTable;
+  legacyId: string;
+  /** Integer, matching `rule_version.version`. */
+  version: number;
+  column: string;
+  /** Optional, the way 1.2.6's and 1.2.7's reasons are. Absent, null and blank all mean none. */
+  reason?: string | null;
+}
+
+/**
  * The three short names a row address may name (1.1.14).
  *
  * A `Record` keyed on the union rather than an array of strings, so adding a
@@ -163,8 +214,9 @@ function readRowAddress(ruleId: string, body: unknown): RuleRowDeclineAddress {
 }
 
 /**
- * The two endpoints behind the cross: Decline on a whole rule (1.2.6), and the
- * cross on a single row with "modify the rule" unticked (1.2.7).
+ * The three endpoints behind the cross: Decline on a whole rule (1.2.6), the
+ * cross on a single row with "modify the rule" unticked (1.2.7), and the same
+ * cross with it ticked (1.2.8).
  *
  * It composes and nothing else. Each press is a service in `RulesModule` —
  * `RuleVersionsService`, the one write path onto `rule_version` and so the
@@ -172,24 +224,37 @@ function readRowAddress(ruleId: string, body: unknown): RuleRowDeclineAddress {
  * `RuleRowDeclinesService`, which writes the per-source rule tables (1.1.3).
  * This controller only resolves the request.
  *
- * The two levels look symmetric and are not, which is the thing to be clear
- * about before wiring a button to either:
+ * The three presses look symmetric and are not, which is the thing to be clear
+ * about before wiring a button to any of them:
  *
  * - **The rule-level press parks the version and decides no row.** A rule is
  *   never deleted (1.1.8): its active version goes inactive with `needsReview`
  *   true, so the rule leaves the screen (1.2.1) and its pending findings wait
  *   for the revision workflow (1.5.1), still pending.
- * - **The row-level press declines one rule row and touches no version.** That
- *   row is settled forever (1.2.7, 1.2.9) and the rule keeps running: its other
- *   rows stay pending and approvable, and its active version is left exactly as
- *   it was.
+ * - **The unticked row-level press declines one rule row and touches no
+ *   version.** That row is settled forever (1.2.7, 1.2.9) and the rule keeps
+ *   running: its other rows stay pending and approvable, and its active version
+ *   is left exactly as it was.
+ * - **The ticked row-level press parks the version and declines no row.** 1.2.8
+ *   — the rule is wrong and this row is the evidence — so the row must stay
+ *   eligible for the version that replaces it, and the reason belongs to the
+ *   version rather than to the row.
  *
- * **The ticked checkbox is neither of these.** 1.2.8 — cross out the row *and*
- * tick "modify the rule" — declines no row and parks the version instead, with
- * the reason stored against the version rather than the row. That is a third
- * press, and it is not implemented in this controller: sending a ticked cross
- * to `rows/decline` would decline the row that 1.2.8 says must stay eligible,
- * which is the opposite of what the tick means. It gets a route of its own.
+ * So the ticked cross writes exactly what the rule-level Decline writes, and
+ * that is why it shares `RuleVersionsService.decline` with it rather than
+ * getting a service of its own: 1.2.6 and 1.2.8 ask for the same three fields
+ * on the same row of `rule_version`. What makes it a different press is what it
+ * does *not* write. It has no injected path to any rule table at all — no
+ * repository, no `DataSource`, not `RuleRowDeclinesService` — so "P-0817's rule
+ * row is NOT declined" is a fact about the code rather than a check inside it.
+ * The address it is sent is read, answered for, and echoed back; nothing is
+ * stored from it, because no column records which row was the evidence and
+ * inventing one would be schema the requirements do not ask for.
+ *
+ * Sending a ticked cross to `rows/decline` would decline the row 1.2.8 says
+ * must stay eligible, which is the opposite of what the tick means. That is why
+ * the tick is a route and not a flag in the body: the two crosses cannot share
+ * a handler that decides which table to write from a boolean a screen sent.
  *
  * **A press with nothing to act on is a count, not a fault.** Declining a rule
  * twice, a rule id nobody has written, an address no rule table holds, a row
@@ -200,7 +265,7 @@ function readRowAddress(ruleId: string, body: unknown): RuleRowDeclineAddress {
  *
  * The routes sit under `rules` beside `POST /rules/:ruleId/approve`,
  * `POST /rules/:ruleId/rows/approve` and `POST /rules/apply`, so the rules
- * screen talks to one prefix, and both are POST because both write.
+ * screen talks to one prefix, and all three are POST because all three write.
  */
 @Controller('rules')
 export class DeclineController {
@@ -239,5 +304,39 @@ export class DeclineController {
     @Body() body: unknown,
   ): Promise<DeclineRowResponse> {
     return await this.rowDeclines.declineRow(readRowAddress(ruleId, body), readReason(body));
+  }
+
+  /**
+   * Crosses one row out and sends the rule for revision (1.2.8): the rule's
+   * active version goes inactive with `needsReview` true and the reason stored
+   * against it, and the addressed rule row is left exactly as it was.
+   *
+   * The route is named for the only thing unique to this press. "Exclude" names
+   * both crosses — 1.2.7 and 1.2.8 are both the operator excluding a row — and
+   * what the tick adds is that the rule goes to the revision workflow (1.5.1).
+   *
+   * The address is read before the reason, so a request that names no row is a
+   * 400 about the row, which is the same order `declineRow` above reads them
+   * in. Both parsers are the file-local ones, reused unchanged: lifting them
+   * into a shared module would edit `approve/`, which is not this route's to
+   * edit.
+   *
+   * The address is then checked against nothing. 1.2.8 states no precondition
+   * on the row, and a press that quietly did nothing because the row had
+   * already been decided would leave the operator believing a rule was parked
+   * when it was not — the rule is what the press is about. A rule with no
+   * active version parks nothing and reports `version: null`, the same line
+   * every other press draws for a screen that is a moment stale (1.2.12).
+   */
+  @Post(':ruleId/rows/revise')
+  @HttpCode(HttpStatus.OK)
+  async reviseFromRow(
+    @Param('ruleId') ruleId: string,
+    @Body() body: unknown,
+  ): Promise<ReviseFromRowResponse> {
+    const { table, legacyId, version, column } = readRowAddress(ruleId, body);
+    const parked = await this.versions.decline(ruleId, readReason(body));
+
+    return { ...parked, row: { table, legacyId, version, column } };
   }
 }

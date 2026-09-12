@@ -98,6 +98,13 @@ export class RuleVersionsService {
    * activates a new version (1.5.1); deciding a row is the cross's job (1.2.7),
    * not this one's.
    *
+   * That is also why this method has a second caller. Crossing out one row with
+   * "modify the rule" ticked (1.2.8) parks the version exactly as a rule-level
+   * Decline does — same three fields, same row of this table — and the row it
+   * names is deliberately left pending, so the revised version proposes on the
+   * row that exposed the bug. Touching a rule row here would break that press
+   * as surely as it would break 1.2.6.
+   *
    * `needsReview` is set here and cleared only by that workflow — the same line
    * `activate` above draws, in the other direction.
    *
