@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ApplyRulesModule } from './apply-rules/apply-rules.module';
 import { AppConfigModule } from './config/app-config.module';
 import { DuplicatesModule } from './duplicates/duplicates.module';
 import { HealthModule } from './health/health.module';
@@ -13,6 +14,7 @@ import { RulesModule } from './rules/rules.module';
     LegacyModule,
     LegacyImportModule,
     RulesModule,
+    ApplyRulesModule,
     DuplicatesModule,
   ],
 })
