@@ -5,6 +5,7 @@ import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
 import { RuleFindingsService } from './rule-findings.service';
 import { RuleRegistry } from './rule-registry';
+import { RuleRowDeclinesService } from './rule-row-declines.service';
 import { RuleRunnerService } from './rule-runner.service';
 import { RuleVersion } from './rule-version.entity';
 import { RuleVersionsService } from './rule-versions.service';
@@ -49,6 +50,14 @@ import { Rule } from './rule.entity';
  * module that owns the rules tables. It needs no `forFeature` of its own: it
  * reads `rule_version` from here, and the legacy data and rule tables from
  * `LegacyModule`.
+ *
+ * `RuleRowDeclinesService` is the row-level cross (1.2.7), here for the same
+ * reason: the rule tables are written in this layer (1.1.3), and the endpoint
+ * that presses it lives in `decline/`. It is deliberately not a method on
+ * `RuleVersionsService` — 1.2.7 leaves the rule untouched, so this press must
+ * never reach `rule_version` — nor on `RuleApprovalsService`, because a decline
+ * is not an approval. It needs no `forFeature` of its own either: the three
+ * per-source rule tables come from `LegacyModule`.
  */
 @Module({
   imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -57,6 +66,7 @@ import { Rule } from './rule.entity';
     RuleRunnerService,
     RuleFindingsService,
     RuleApprovalsService,
+    RuleRowDeclinesService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -66,6 +76,7 @@ import { Rule } from './rule.entity';
     RuleRunnerService,
     RuleFindingsService,
     RuleApprovalsService,
+    RuleRowDeclinesService,
   ],
 })
 export class RulesModule {}
