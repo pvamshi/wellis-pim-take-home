@@ -20,6 +20,40 @@ building against.
 - Legacy data has many problems. Migration is the process of resolving every
   problem on a row until that row is fit to enter the main table.
 
+### 1.0 Import script
+- A script that loads the legacy export into the legacy tables.
+- Running it twice does not duplicate anything.
+- Covers all three sources: `patients.csv`, `intakes.csv`, `consents.jsonl`.
+
+#### 1.0.1 The check is against the database, nothing else
+- Identity is `legacy_xxx_id` — `legacy_id` for patients, `intake_id` for
+  intakes, and the same idea for consents.
+- Walk the ids in the file being imported. For each one, ask only: is this id
+  already in the database?
+- Already there: decline that row.
+- Not there: import it.
+- Two rows in the file sharing an id is fine. Both are new to the database, so
+  both go in. We never decline a row because of another row in the same import.
+- There is no notion of file identity — no filename tracking, no content hash.
+  "The same file" only ever means the one currently being imported.
+
+#### 1.0.2 Same id, different data
+- Ignore it. The row is skipped and nothing is recorded about it.
+- No update, no merge, no conflict queue, no record of what was skipped. The id
+  being present is the whole test; we do not compare the values at all.
+- Reporting on skipped rows is deliberately out of scope. See `deferred.md` D4.
+
+#### 1.0.3 Consents are the same
+- Same rule, same check.
+- Two events in one file that look identical both go in. Duplicates inside a file
+  are real data — rules deal with them later (1.6.3), not the importer.
+
+#### 1.0.4 What this makes the import
+- Re-running the identical file imports nothing, because every id is now in the
+  database. That is the idempotency, and it costs one lookup.
+- Re-import as a feature — merging, conflicts, reporting what was skipped — is
+  cut. See `deferred.md` D4.
+
 ### 1.1 Rules engine
 - Rules are generated from the initial data structure plus feedback Vamshi gives.
 - The engine is living: every round of feedback updates the rules.
@@ -42,9 +76,41 @@ building against.
 - So a rule change is a deploy, not a runtime edit. What that buys is rules that
   are reviewable, testable and in git.
 
-#### 1.1.4 Rules never write
-- A rule may read data and run DB queries. It may never update data.
-- Hard rule.
+#### 1.1.4 Rules never write anything
+- A rule may read data and run DB queries. It writes nothing at all — not the
+  data tables, not the rule tables. Hard rule.
+- It returns its findings as JSON and stops there.
+
+#### 1.1.11 Only the API applies a change
+- Accepting a change is an API call, not something the rule does.
+- The API updates the rule row and the data row together, in one transaction.
+- That transaction is what gives us the log of why the data changed: the row's
+  new value and the rule row that explains it land or fail as one.
+
+#### 1.1.12 A rule is one function, and the API does the rest
+- The rule checks the data and returns the updates as JSON. That is all it does.
+- A shared API takes that JSON and writes the rows into the rule table. It is
+  also what skips a row that already has a declined entry (1.6.2.1).
+- Why the split: the declined-row check is a correctness rule, and we are
+  deliberately mass-producing rules (1.1.8). Leaving that check to each generated
+  rule means every one of them can get it wrong. In one API it is written once.
+- Applying an accepted change is that same layer's job (1.1.11), never the
+  rule's.
+
+#### 1.1.14 Rules are atomic
+- One rule, one fix. We never club several fixes into a single rule.
+- So a rule is approved or declined as one thing, and the reason a value changed
+  is always a single rule, never a bundle.
+- This is what makes 1.1.8 work: mass-producing rules is only cheap if each one
+  is small enough to judge at a glance.
+
+#### 1.1.13 A rule changes the column it tested
+- The column a rule finds the problem in is the column it changes. It does not
+  test one column and rewrite another.
+- That makes rules self-terminating: fix the bad date and the date is no longer
+  bad, so the rule stops matching on the next run. Approved rows need no guard.
+- The one case left is a rule whose own fix does not satisfy its own condition.
+  It re-proposes forever, and it is visibly broken, so it gets crossed out.
 
 #### 1.1.5 Rule scope
 - A rule is not scoped to a single value. It can target one value in a row,
@@ -96,7 +162,10 @@ building against.
   matches does not appear.
 
 #### 1.2.1 Ambiguous findings
-- Some rules find a problem but do not know how to fix it.
+- Ambiguity is a property of the rule, not of the individual row. A rule either
+  fixes what it finds or it does not, and `rule.ambiguous` says which.
+- So there is no per-row explanation column. The rule's own description is the
+  explanation, and its rows carry `previousValue` with no `nextValue`.
 - These are shown explicitly as ambiguous, not as proposals.
 - The user responds with either how to fix it, or by ignoring the rule.
 - That feedback either makes the rule inactive, or produces a new version that
@@ -165,6 +234,8 @@ building against.
 ### 1.4 Promotion
 - Once all problems on a row are resolved, that row becomes eligible to be added
   to the main table.
+- The main table itself is next phase. Not designed yet, and deliberately so —
+  including whether new patient intake (2) writes into the same tables.
 
 ### 1.5 Feedback loop
 - Two kinds of feedback, both given from the UI:
@@ -199,6 +270,7 @@ type Rule = {
   ruleId: string
   ruleName: string
   description: string
+  ambiguous: boolean       // true = this rule finds a problem it cannot fix
 }
 
 type RuleVersion = {
@@ -218,6 +290,7 @@ type RuleVersion = {
   `needsReview`.
 - So `needsReview` is the queue the revision workflow reads. Nothing else drives
   it.
+- Vamshi runs that workflow manually. No schedule, no trigger on write.
 
 #### 1.6.1.2 A revision may split into two rules
 - The workflow is not limited to writing a new version of the same rule.
@@ -253,8 +326,9 @@ type LegacyPatientRule = {
   version: number
   column: string
   previousValue: string | null
-  nextValue: string | null
+  nextValue: string | null   // null on an ambiguous rule — there is no fix
   status: 'pending' | 'approved' | 'declined'
+  reason: string | null      // why this row was declined, if the user gave one
 }
 ```
 

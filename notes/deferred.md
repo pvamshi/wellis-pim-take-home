@@ -10,6 +10,18 @@ README as a stated choice.
   the state machine, and the import logic — are all backend. Test effort goes
   there.
 
+## D4. Re-importing, as a feature
+- The importer ignores any id already in the database. That is the whole of it.
+- Cut entirely: update-or-merge semantics, a conflict queue for an id whose
+  values disagree, any report of what was skipped and why, and any way to take a
+  correction from a re-exported file.
+- Why: it is a feature in its own right and not where the value of this project
+  is. The import runs once against a fixed export; building re-import machinery
+  now spends the time in the wrong place.
+- What it costs: the only way to take a correction from the source is to clear
+  the table and import again. And a run that skips every row looks, from the
+  outside, like a run that imported nothing to do.
+
 ## D3. Rules interacting with each other
 - We do not handle the case where one rule's accepted fix causes another rule to
   flag the same data as a problem.
