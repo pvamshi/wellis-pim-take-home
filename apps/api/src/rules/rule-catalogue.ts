@@ -10,6 +10,7 @@ import { p09 } from './catalogue/p09';
 import { p10 } from './catalogue/p10';
 import { p11 } from './catalogue/p11';
 import { p12 } from './catalogue/p12';
+import { p13 } from './catalogue/p13';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -41,4 +42,5 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   p10,
   p11,
   p12,
+  p13,
 ];
