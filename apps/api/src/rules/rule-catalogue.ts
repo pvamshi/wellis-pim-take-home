@@ -1,3 +1,4 @@
+import { p01 } from './catalogue/p01';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -16,4 +17,4 @@ import type { CatalogueRule } from './rule-contract';
  * Entries carry the `rule` row's fields alongside the code, so `just rules-sync`
  * can make the database match this file without a second source of truth.
  */
-export const ruleCatalogue: readonly CatalogueRule[] = [];
+export const ruleCatalogue: readonly CatalogueRule[] = [p01];
