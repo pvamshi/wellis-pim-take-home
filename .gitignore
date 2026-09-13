@@ -32,3 +32,4 @@ npm-debug.log*
 # Machine-local Claude Code settings. `.claude/` itself is committed —
 # the workflow scripts are part of what this project is being judged on.
 .claude/settings.local.json
+1a.txt
