@@ -26,6 +26,7 @@ import { p25 } from './catalogue/p25';
 import { p26 } from './catalogue/p26';
 import { p27 } from './catalogue/p27';
 import { p28 } from './catalogue/p28';
+import { p29 } from './catalogue/p29';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -73,4 +74,5 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   p26,
   p27,
   p28,
+  p29,
 ];
