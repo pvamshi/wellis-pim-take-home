@@ -109,3 +109,20 @@ export interface RegisteredRule {
   version: number;
   run: RuleFunction;
 }
+
+/**
+ * A catalogue entry: registered code plus what the `rule` row needs.
+ *
+ * Separate from `RegisteredRule` so tests can keep registering bare fakes. The
+ * extra three fields are what `rule` holds and code cannot derive — a name, the
+ * description an ambiguous rule shows a human in place of a value (1.1.12), and
+ * whether it is ambiguous at all.
+ *
+ * They live beside the code rather than in a seed file so that a rule and the
+ * sentence describing it cannot drift apart.
+ */
+export interface CatalogueRule extends RegisteredRule {
+  ruleName: string;
+  description: string;
+  ambiguous: boolean;
+}

@@ -1,4 +1,4 @@
-import type { RegisteredRule } from './rule-contract';
+import type { CatalogueRule } from './rule-contract';
 
 /**
  * Every `(ruleId, version)` the codebase has code for.
@@ -13,9 +13,7 @@ import type { RegisteredRule } from './rule-contract';
  * Entries are appended, never removed and never renumbered. A new version of a
  * rule is a new entry alongside the old one, not an edit to it.
  *
- * Empty on purpose. This body of work is the infrastructure rules run on, not
- * the rules; tests register fakes of their own. An example rule sitting here
- * would run on every press of "Apply rules" (1.2.10) and produce findings
- * nobody asked for (1.1.11).
+ * Entries carry the `rule` row's fields alongside the code, so `just rules-sync`
+ * can make the database match this file without a second source of truth.
  */
-export const ruleCatalogue: readonly RegisteredRule[] = [];
+export const ruleCatalogue: readonly CatalogueRule[] = [];

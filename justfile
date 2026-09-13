@@ -39,6 +39,15 @@ import *ARGS:
 revise *ARGS:
     npm run revise -w apps/api -- {{ARGS}}
 
+# The catalogue in code is the source of truth for what rule code exists; the
+# database is the source of truth for what is active and what is queued for
+# revision. This reconciles the first into the second, never the other way, and
+# is idempotent — run it after every rule, and again after an interrupted run.
+
+# Make the rule and rule_version tables match the code catalogue
+rules-sync:
+    npm run rules-sync -w apps/api
+
 # --if-present is required: the web app has no test script by design, and its
 # absence must not fail this recipe.
 
