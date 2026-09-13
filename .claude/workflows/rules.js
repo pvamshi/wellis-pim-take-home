@@ -126,16 +126,26 @@ async function buildRule(id) {
 
   while (attempts < 2) {
     attempts += 1
+    // `review` is null when the review agent died rather than returned a
+    // verdict — a session limit, an API error. Retry against what it said only
+    // when it said anything.
     const retry =
       attempts === 1
         ? ''
-        : `
+        : review
+          ? `
 This is attempt ${attempts}. A previous developer built this and it failed review.
 Fix exactly what the reviewer found and nothing else.
 
 Unmet: ${JSON.stringify(review.unmet, null, 2)}
 Failures: ${JSON.stringify(review.failures, null, 2)}
 Weak tests: ${JSON.stringify(review.weakTests, null, 2)}
+`
+          : `
+This is attempt ${attempts}. A previous developer built this and the reviewer
+died before returning a verdict, so nothing is known about what is wrong. Check
+what is already on disk for this rule, finish or correct it, and make sure
+'just build' and 'just test' pass.
 `
 
     dev = await agent(

@@ -164,7 +164,28 @@ One rule, one fix. Several fixes are never clubbed into a single rule. A rule is
 approved or declined as one thing, and the reason a value changed is always a
 single rule, never a bundle.
 
-### 1.1.5 A rule changes the column it tested
+**Atomic means one fix, not one column.** A fix may need several columns of the
+same row — converting a weight from pounds writes both `weight` and
+`weight_unit`, and either one alone leaves the row wrong. Those changes are one
+atom: shown together, approved together, declined together.
+
+```gherkin
+Scenario: a fix that spans two columns
+  Given patient P-0310 holds weight 180 and weight_unit lbs
+  When the weight-conversion rule runs
+  Then it returns two updates for P-0310 — weight 81.6 and weight_unit kg
+  And the screen shows them as one change with two columns
+  And approving it writes both, in one transaction
+  And declining it declines both
+
+Scenario: a row action never applies half a fix
+  Given a rule proposes two columns on patient P-0310
+  When the user approves that row
+  Then both columns are written
+  And there is no way to approve one column and leave the other
+```
+
+### 1.1.5 A rule changes what it tested
 
 ```gherkin
 Scenario: an approved fix stops matching
@@ -174,8 +195,14 @@ Scenario: an approved fix stops matching
   Then R7 does not match P-1042
 ```
 
-The column a rule finds the problem in is the column it changes. That makes
-rules self-terminating, so approved rows need no guard.
+A rule may read anything (1.1.6), and it changes the columns its own fix needs.
+What makes rules self-terminating is not that the read and the write are the
+same column — it is that after its fix the rule's condition is false. The
+pounds conversion reads `weight_unit`, writes both columns, and then no longer
+matches because the unit says `kg`.
+
+A rule whose own fix does not falsify its own condition re-proposes forever. It
+is visibly broken and gets crossed out.
 
 ### 1.1.6 A rule's scope is wider than one value
 
@@ -292,6 +319,10 @@ Scenario: a rule with both pending and approved rows
 
 Every row shows `previousValue` and `nextValue` side by side. An ambiguous rule's
 rows show the previous value and the rule's description instead of a new value.
+
+Where a rule proposes several columns on one row (1.1.4), they are shown as one
+change listing every column, with one tick and one cross between them — not as
+several entries a reviewer could act on separately.
 
 ### 1.2.4 Approve works at both levels
 
