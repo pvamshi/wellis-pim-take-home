@@ -64,6 +64,12 @@ import { p63 } from './catalogue/p63';
 import { p64 } from './catalogue/p64';
 import { p65 } from './catalogue/p65';
 import { i01 } from './catalogue/i01';
+import { i02 } from './catalogue/i02';
+import { i03 } from './catalogue/i03';
+import { i04 } from './catalogue/i04';
+import { i05 } from './catalogue/i05';
+import { i06 } from './catalogue/i06';
+import { i07 } from './catalogue/i07';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -149,4 +155,10 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   p64,
   p65,
   i01,
+  i02,
+  i03,
+  i04,
+  i05,
+  i06,
+  i07,
 ];
