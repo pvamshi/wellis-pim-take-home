@@ -378,8 +378,23 @@ export class RuleApprovalsService {
    * rows stay pending and approvable. There is no check that the named version
    * is the active one — the caller named the version, and rule-level approve is
    * the one that has to choose between them.
+   *
+   * `value` is the human's own answer to a finding the rule could not answer
+   * (1.1.12). An ambiguous rule reports what is wrong with a row and proposes
+   * nothing, so there was previously no way to settle such a row except to
+   * decline it — the screen could show a bad date of birth and offer no way to
+   * put the right one in. A value supplied here becomes the row's proposal and
+   * is then applied down exactly the same path as a rule's own, so the write,
+   * the transaction and the modification log (1.3) are the ones that already
+   * exist.
+   *
+   * It is accepted **only** for a row that proposes nothing. Letting a value
+   * override what a rule proposed would make the rule row a record of something
+   * other than what the rule said, which the whole engine is built on not doing
+   * — the way to disagree with a proposal is the cross, and the way to change
+   * one is a new version of the rule (1.1.8, 1.2.8).
    */
-  async approveRow(address: RuleRowAddress): Promise<RuleApprovalReport> {
+  async approveRow(address: RuleRowAddress, value?: string): Promise<RuleApprovalReport> {
     const { table, legacyId, ruleId, version, column } = address;
 
     return await this.dataSource.transaction(async (manager: EntityManager) => {
@@ -401,12 +416,27 @@ export class RuleApprovalsService {
         return nothing;
       }
 
+      if (value !== undefined) {
+        if (row.nextValue !== null) {
+          throw new Error(
+            `cannot supply a value for ${describe(source, row)}: the rule already proposes one`,
+          );
+        }
+
+        row.nextValue = value;
+      }
+
       const updated = await applyPrepared(manager, await prepare(manager, source, [row]));
 
       await manager.update(
         source.rules,
         { legacyId, ruleId, version, column, status: 'pending' },
-        { status: 'approved' },
+        // The supplied value is written back to the row as well as into the
+        // data. Without it the finding would stay a null proposal that somehow
+        // got approved, and the modification log would have nothing to print
+        // for what was written. An ambiguous rule's rows are the only ones this
+        // can happen to, which is what says a human typed it.
+        { status: 'approved', ...(value === undefined ? {} : { nextValue: value }) },
       );
 
       return { ruleId, version, approved: 1, updated };

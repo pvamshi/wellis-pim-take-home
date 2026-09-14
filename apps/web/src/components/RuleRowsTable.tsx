@@ -1,4 +1,15 @@
-import { ActionIcon, Code, Group, Table, Text, Tooltip } from '@mantine/core';
+import { useState } from 'react';
+import {
+  ActionIcon,
+  Button,
+  Code,
+  Group,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Tooltip,
+} from '@mantine/core';
 import type { RuleDetailRow } from '../api/types';
 import { DiffValue, diffValues, type DiffPiece } from './ValueDiff';
 
@@ -14,6 +25,22 @@ import { DiffValue, diffValues, type DiffPiece } from './ValueDiff';
 export interface RuleRowActions {
   readonly onApprove: (row: RuleDetailRow) => void;
   readonly onDecline: (row: RuleDetailRow) => void;
+  /**
+   * The two presses an ambiguous rule's row carries instead of the tick and the
+   * cross (1.1.12).
+   *
+   * A rule that proposes nothing leaves the tick with nothing to apply, so the
+   * row asks the human for the value instead and applies what they type down
+   * the same path. The cross becomes a box and a button rather than a dialog,
+   * because on a row nobody can propose a value for, why it was waved through
+   * is the only thing there is to record.
+   *
+   * `onDecline` above is still reached, from the "rule needs revision" press:
+   * that one opens the dialog, which is where the tick that parks the whole
+   * version lives (1.2.8).
+   */
+  readonly onApproveWithValue: (row: RuleDetailRow, value: string) => void;
+  readonly onDeclineWithReason: (row: RuleDetailRow, reason: string) => void;
   /** True while a press is in flight: every button is disabled until it lands. */
   readonly busy: boolean;
 }
@@ -62,6 +89,90 @@ function comparison(
   };
 }
 
+/** A row's address as one string, which is also its React key. */
+function keyOf(row: RuleDetailRow): string {
+  return `${row.table}:${row.legacyId}:${row.column}`;
+}
+
+/**
+ * The value box and the reason box for one ambiguous row.
+ *
+ * Local state, and deliberately: a half-typed value is not a decision, so it
+ * belongs to the input that holds it and to nothing above. One instance per
+ * row, keyed by the row's address on the `<tr>`, so React cannot carry what was
+ * typed on one row over to another when the list is re-read.
+ *
+ * The value box starts at what the column holds now. The human is nearly always
+ * correcting a value rather than inventing one — a date read the wrong way
+ * round, a weight with the unit typed into it — and starting from the current
+ * cell means they edit the part that is wrong instead of retyping the rest of
+ * it. It is a text box, not a dropdown or a date picker: every legacy column is
+ * text, and what is right for a `dob` is not what is right for a `phone`.
+ */
+function AmbiguousRowActions({ row, actions }: { row: RuleDetailRow; actions: RuleRowActions }) {
+  const [value, setValue] = useState(row.previousValue ?? '');
+  const [reason, setReason] = useState('');
+
+  return (
+    <Stack gap={6}>
+      <Group gap={6} wrap="nowrap" align="flex-start">
+        <TextInput
+          size="xs"
+          w={200}
+          value={value}
+          placeholder="What this column should hold"
+          aria-label={`Value for ${row.table} ${row.legacyId} ${row.column}`}
+          disabled={actions.busy}
+          onChange={(event) => setValue(event.currentTarget.value)}
+        />
+        <Button
+          size="xs"
+          color="green"
+          disabled={actions.busy}
+          onClick={() => actions.onApproveWithValue(row, value)}
+        >
+          Apply
+        </Button>
+      </Group>
+      <Group gap={6} wrap="nowrap" align="flex-start">
+        <TextInput
+          size="xs"
+          w={200}
+          value={reason}
+          placeholder="Why leave it (optional)"
+          aria-label={`Reason for declining ${row.table} ${row.legacyId} ${row.column}`}
+          disabled={actions.busy}
+          onChange={(event) => setReason(event.currentTarget.value)}
+        />
+        <Button
+          size="xs"
+          variant="light"
+          color="red"
+          disabled={actions.busy}
+          onClick={() => actions.onDeclineWithReason(row, reason)}
+        >
+          Decline
+        </Button>
+      </Group>
+      {/*
+        The one press that still needs the dialog. An ambiguous rule that is
+        asking the wrong question is a rule to revise, not a row to answer, and
+        the tick that parks the whole version (1.2.8) lives in the dialog the
+        cross opens.
+      */}
+      <Button
+        size="compact-xs"
+        variant="subtle"
+        color="gray"
+        disabled={actions.busy}
+        onClick={() => actions.onDecline(row)}
+      >
+        The rule itself is wrong
+      </Button>
+    </Stack>
+  );
+}
+
 /**
  * The rows of one section, before and after (1.2.3).
  *
@@ -69,13 +180,17 @@ function comparison(
  * looks like and which buttons it carries. It is extracted because it is
  * rendered twice — with actions and without — not on speculation.
  *
- * Two things worth stating:
+ * Three things worth stating:
  *
  * - **The after column reads `ambiguous`, never the absence of `nextValue`.**
  *   An ambiguous rule's rows arrive with no `nextValue` key at all and the
  *   rule's description is what the human reads instead (1.1.12, 1.2.3). A
  *   non-ambiguous rule may legitimately propose null — clearing a column — and
  *   that renders as `(none)`, not as a description.
+ * - **The decision column is two different things.** A rule that proposes a
+ *   value gets the tick and the cross; a rule that cannot gets a box to type
+ *   the value into, because a tick with nothing to apply is a button that can
+ *   only fail.
  * - **The key is `table:legacyId:column`.** With the detail's rule id and
  *   version, which are the same on every row of one section, that is the rule
  *   row's whole primary key, so it cannot repeat inside a section.
@@ -95,7 +210,11 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
             <Table.Th>Column</Table.Th>
             <Table.Th>Before</Table.Th>
             <Table.Th>{ambiguous ? 'What the rule found' : 'After'}</Table.Th>
-            {actions !== undefined && <Table.Th w={100}>Decision</Table.Th>}
+            {actions !== undefined && (
+              <Table.Th w={ambiguous ? 280 : 100}>
+                {ambiguous ? 'What should it be?' : 'Decision'}
+              </Table.Th>
+            )}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -103,7 +222,7 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
             const { before, after } = comparison(row, ambiguous);
 
             return (
-              <Table.Tr key={`${row.table}:${row.legacyId}:${row.column}`}>
+              <Table.Tr key={keyOf(row)}>
                 <Table.Td>
                   <Text size="sm">{row.table}</Text>
                 </Table.Td>
@@ -123,7 +242,12 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
                     <DiffValue pieces={after} tone="added" />
                   )}
                 </Table.Td>
-                {actions !== undefined && (
+                {actions !== undefined && ambiguous && (
+                  <Table.Td>
+                    <AmbiguousRowActions row={row} actions={actions} />
+                  </Table.Td>
+                )}
+                {actions !== undefined && !ambiguous && (
                   <Table.Td>
                     <Group gap="xs" wrap="nowrap">
                       {/*

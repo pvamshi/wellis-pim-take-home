@@ -92,6 +92,30 @@ function readAddress(ruleId: string, body: unknown): RuleRowAddress {
 }
 
 /**
+ * Reads the value the human typed for an ambiguous finding, or undefined when
+ * they typed none.
+ *
+ * Absent and null are the same request — the ordinary approve, applying what
+ * the rule proposed. A blank string is not: clearing a column is a legitimate
+ * answer to "what should this be", and refusing it here would mean the one
+ * answer the screen cannot give is the empty one. Only the wrong *type* is a
+ * bad request.
+ */
+function readValue(body: unknown): string | undefined {
+  const { value } = body as Record<string, unknown>;
+
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw new BadRequestException('value must be a string when it is given');
+  }
+
+  return value;
+}
+
+/**
  * The two endpoints behind the tick (1.2.4): Approve on a whole rule, and
  * Approve on a single row.
  *
@@ -144,6 +168,11 @@ export class ApproveController {
    * Approves one rule row (1.2.4, second scenario). The rule id comes from the
    * URL and the rest of the row's primary key from the body, because that key
    * is the only way to address a finding — rule rows have no surrogate id.
+   *
+   * An optional `value` settles a row an ambiguous rule could not (1.1.12): the
+   * human supplies what the rule would not guess, and it is applied down the
+   * same path as a proposal of the rule's own. The service refuses it for a row
+   * that already proposes a value.
    */
   @Post(':ruleId/rows/approve')
   @HttpCode(HttpStatus.OK)
@@ -151,6 +180,6 @@ export class ApproveController {
     @Param('ruleId') ruleId: string,
     @Body() body: unknown,
   ): Promise<ApproveResponse> {
-    return await this.approvals.approveRow(readAddress(ruleId, body));
+    return await this.approvals.approveRow(readAddress(ruleId, body), readValue(body));
   }
 }

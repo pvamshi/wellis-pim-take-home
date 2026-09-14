@@ -189,6 +189,49 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
     });
   }
 
+  /**
+   * The human's own answer to a finding the rule could not answer (1.1.12).
+   *
+   * The same endpoint as the tick, carrying the value they typed: an ambiguous
+   * rule proposes nothing, so there is nothing for a bare approve to write, and
+   * this is what gives such a row a way to be settled other than declining it.
+   * Blank is a real answer — it says the column should hold nothing — so it is
+   * sent like any other.
+   */
+  function onRowApproveWithValue(row: RuleDetailRow, value: string) {
+    const address = addressOf(row);
+    if (address === null) return;
+
+    press(async () => {
+      const report = await approveRow(ruleId, address, value);
+      return report.approved === 0
+        ? `Nothing to set on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
+        : `Set ${address.table} ${address.legacyId}, ${address.column} to "${value}", updating ${rowCount(report.updated)} of legacy data.`;
+    });
+  }
+
+  /**
+   * The cross on an ambiguous row, pressed inline rather than through the
+   * dialog (1.2.7).
+   *
+   * The dialog exists to choose between declining a row and parking the whole
+   * version (1.2.8), and to collect the reason for either. On an ambiguous row
+   * that choice is already made by which button was pressed — "the rule itself
+   * is wrong" still opens the dialog — so all that is left is the reason, and a
+   * box on the row is a shorter way to type one than a dialog.
+   */
+  function onRowDeclineWithReason(row: RuleDetailRow, reason: string) {
+    const address = addressOf(row);
+    if (address === null) return;
+
+    press(async () => {
+      const report = await declineRow(ruleId, address, reason);
+      return report.declined === 0
+        ? `Nothing to decline on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
+        : `Declined ${address.table} ${address.legacyId}, ${address.column} of ${detail.ruleName}. It will never be proposed again.`;
+    });
+  }
+
   // Neither cross posts anything. Both open the dialog, which is where the
   // reason is typed and — for a row — where the two opposite outcomes of the
   // "modify the rule" tick are chosen between (1.2.6, 1.2.7, 1.2.8).
@@ -270,10 +313,15 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
       <Text size="sm">{detail.description}</Text>
 
       {detail.ambiguous && (
-        <Text size="sm" c="dimmed">
-          This rule finds problems it cannot fix, so its rows propose no new value — the description
-          above is what each row means.
-        </Text>
+        <Alert color="yellow" title="This rule cannot propose a value">
+          <Text size="sm">
+            It can tell that these rows are wrong but not what they should be — the description
+            above is the whole of what it found. So there is nothing to tick: type what the column
+            should hold and press Apply, or decline the row to leave it as it is and never be asked
+            again. If the rule is asking the wrong question altogether, send it for revision
+            instead.
+          </Text>
+        </Alert>
       )}
 
       {version === null && (
@@ -314,7 +362,13 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
             rows={detail.pending}
             ambiguous={detail.ambiguous}
             description={detail.description}
-            actions={{ onApprove: onRowApprove, onDecline: onRowDecline, busy }}
+            actions={{
+              onApprove: onRowApprove,
+              onDecline: onRowDecline,
+              onApproveWithValue: onRowApproveWithValue,
+              onDeclineWithReason: onRowDeclineWithReason,
+              busy,
+            }}
           />
         )}
       </Stack>

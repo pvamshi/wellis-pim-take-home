@@ -206,11 +206,24 @@ export async function approveRule(ruleId: string): Promise<ApproveReport> {
   return await requestJson<ApproveReport>(ruleUrl(ruleId, '/approve'), { method: 'POST' });
 }
 
-/** The tick on one row (1.2.4, second scenario). A row approve carries no reason. */
-export async function approveRow(ruleId: string, row: RuleRowAddress): Promise<ApproveReport> {
+/**
+ * The tick on one row (1.2.4, second scenario). A row approve carries no reason.
+ *
+ * `value` is what the user typed for a finding an ambiguous rule could not
+ * answer (1.1.12): it becomes that row's proposal and is applied down the same
+ * path as one of the rule's own. Sent whenever it is given, blank included — an
+ * empty box is an answer ("this column should hold nothing"), which is why this
+ * is not `reasonField`'s blank-means-absent rule. The backend refuses it for a
+ * row that already proposes a value.
+ */
+export async function approveRow(
+  ruleId: string,
+  row: RuleRowAddress,
+  value?: string,
+): Promise<ApproveReport> {
   return await requestJson<ApproveReport>(ruleUrl(ruleId, '/rows/approve'), {
     method: 'POST',
-    body: row,
+    body: value === undefined ? row : { ...row, value },
   });
 }
 
@@ -255,14 +268,20 @@ export async function declineRule(ruleId: string, reason?: string): Promise<Rule
  * backend deliberately serves them as two routes so that no boolean from a
  * screen can decide which one is written.
  *
- * Still no reason. The endpoint takes one (1.2.7) and the dialog never collects
- * one for this press: the reason box it shows is the one stored against a
- * version (1.2.6, 1.2.8), so an unticked cross has nothing to send.
+ * The reason is optional (1.2.7) and the decline dialog never collects one for
+ * this press — the box it shows is the one stored against a version (1.2.6,
+ * 1.2.8). An ambiguous rule's rows are the exception: their cross is a box and
+ * a button on the row itself, because a row nobody can propose a value for is
+ * one where why it was waved through is the only thing left to record.
  */
-export async function declineRow(ruleId: string, row: RuleRowAddress): Promise<RowDeclineReport> {
+export async function declineRow(
+  ruleId: string,
+  row: RuleRowAddress,
+  reason?: string,
+): Promise<RowDeclineReport> {
   return await requestJson<RowDeclineReport>(ruleUrl(ruleId, '/rows/decline'), {
     method: 'POST',
-    body: row,
+    body: { ...row, ...reasonField(reason) },
   });
 }
 
