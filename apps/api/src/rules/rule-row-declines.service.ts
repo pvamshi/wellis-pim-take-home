@@ -74,6 +74,27 @@ export interface RuleRowDeclineAddress {
   readonly column: string;
 }
 
+/**
+ * What one press of Decline all on a row did (1.6.5).
+ *
+ * `table` and `legacyId` echo the address, the way `RuleRowDeclineReport`
+ * echoes `ruleId`: there is no single `ruleId` or `version` here, because
+ * this press declines every pending finding on the row, whichever rule and
+ * version proposed it.
+ */
+export interface RowDeclineAllReport {
+  /** `patient`, `intake` or `consent` (1.1.14). */
+  readonly table: string;
+  readonly legacyId: string;
+  /** Every pending rule row this press moved to declined, ambiguous included. */
+  readonly declined: number;
+  /**
+   * The reason stored on every one of them, or null when none was given.
+   * Null too when nothing was declined, because then nothing was stored.
+   */
+  readonly reason: string | null;
+}
+
 /** What one press of the row-level cross did (1.2.7). */
 export interface RuleRowDeclineReport {
   readonly ruleId: string;
@@ -181,6 +202,59 @@ export class RuleRowDeclinesService {
       );
 
       return { ruleId, version, declined: 1, reason: stored };
+    });
+  }
+
+  /**
+   * Declines every pending finding on one row, ambiguous ones included — the
+   * row-wide cross (1.6.5).
+   *
+   * Unlike `approveAllOnRow` (`rule-approvals.service.ts`), there is nothing
+   * here to filter: the cross needs no proposal to press, so every pending
+   * row of the source `table` names is taken, whichever rule or version
+   * proposed it. That is what lets this be one blanket `UPDATE` where the
+   * approve side needs a per-row one — there is no ambiguous row this press
+   * has to leave behind.
+   *
+   * It never touches `rule_version`. This service has no dependency capable
+   * of reaching that table at all, so "a row-wide decline does not park a
+   * rule version (1.2.8)" is a fact about the code, not a check inside it —
+   * the same guarantee `declineRow` above already gives for a single finding.
+   *
+   * The rows are read before they are written, so the count comes from what
+   * was actually found rather than from `UpdateResult.affected`, which
+   * drivers report inconsistently — the same reasoning `declineRow` gives,
+   * extended to a set instead of one row. Both happen inside one transaction,
+   * so nothing can move between the two.
+   *
+   * An unknown `table`, or a row with nothing pending, declines nothing and
+   * says so with `declined: 0` and `reason: null` rather than failing — the
+   * same "count, not a fault" line every other press in this codebase draws.
+   */
+  async declineAllOnRow(
+    table: string,
+    legacyId: string,
+    reason?: string | null,
+  ): Promise<RowDeclineAllReport> {
+    const stored = storedReason(reason);
+
+    return await this.dataSource.transaction(async (manager: EntityManager) => {
+      const nothing: RowDeclineAllReport = { table, legacyId, declined: 0, reason: null };
+      const entity = declinableTables.get(table);
+
+      if (entity === undefined) {
+        return nothing;
+      }
+
+      const rows = await manager.getRepository(entity).find({ where: { legacyId, status: 'pending' } });
+
+      if (rows.length === 0) {
+        return nothing;
+      }
+
+      await manager.update(entity, { legacyId, status: 'pending' }, { status: 'declined', reason: stored });
+
+      return { table, legacyId, declined: rows.length, reason: stored };
     });
   }
 }

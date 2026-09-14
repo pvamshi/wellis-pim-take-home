@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RowRejection } from './row-rejection.entity';
+import { RowRejectionsService } from './row-rejections.service';
 
 /**
  * The one rejection table (1.6.2, 1.6.6).
@@ -17,11 +18,16 @@ import { RowRejection } from './row-rejection.entity';
  * `TypeOrmModule` is re-exported so the repository is injectable from any
  * module that imports this one — `RulesModule`, for `RowListService`, exactly
  * as it already imports `LegacyModule` for the six per-source repositories.
- * There is no provider here: the write path onto this table (1.6.6) is a later
- * task's, not this one's.
+ *
+ * `RowRejectionsService` is the write path onto this table (1.6.6) that this
+ * module's own comment used to earmark as a later task's — that task is R3.
+ * It is exported so `row-actions/`'s controller can inject it, the same
+ * out-of-module-HTTP-surface shape every other write path in this codebase
+ * already keeps.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([RowRejection])],
-  exports: [TypeOrmModule],
+  providers: [RowRejectionsService],
+  exports: [TypeOrmModule, RowRejectionsService],
 })
 export class RowsModule {}

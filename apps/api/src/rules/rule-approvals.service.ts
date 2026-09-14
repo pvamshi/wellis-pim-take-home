@@ -90,6 +90,34 @@ export interface RuleRowAddress {
   readonly column: string;
 }
 
+/**
+ * What one press of Approve all on a row did (1.6.4).
+ *
+ * `table` and `legacyId` echo the address, the way `RuleApprovalReport` echoes
+ * `ruleId`: there is no single `ruleId` here, because this press crosses every
+ * rule the row has a finding from.
+ */
+export interface RowApproveAllReport {
+  /** `patient`, `intake` or `consent` (1.1.14). */
+  readonly table: string;
+  readonly legacyId: string;
+  /** Rule rows moved from pending to approved — the ones that proposed a value. */
+  readonly approved: number;
+  /**
+   * Legacy data rows written. It can exceed `approved` for the same reason
+   * `RuleApprovalReport.updated` can: two legacy rows may share one legacy id
+   * (1.0.3).
+   */
+  readonly updated: number;
+  /**
+   * Pending findings this press could not act on because the rule behind them
+   * is ambiguous and proposed no value (1.1.12) — left pending, exactly as
+   * 1.6.4 asks, and counted here so the press never looks like it finished a
+   * row it did not.
+   */
+  readonly skipped: number;
+}
+
 /** What one approve did. Returned by both levels, because both apply changes. */
 export interface RuleApprovalReport {
   readonly ruleId: string;
@@ -440,6 +468,78 @@ export class RuleApprovalsService {
       );
 
       return { ruleId, version, approved: 1, updated };
+    });
+  }
+
+  /**
+   * Approves every pending finding on one row, across every rule that made
+   * one — the row-wide tick (1.6.4). It is exactly the row-level tick
+   * (1.2.4/`approveRow`) pressed on every finding of that row, in one
+   * transaction, and it reuses that same apply path rather than
+   * re-implementing it: this method's whole job is to find the pending rows
+   * and split them, not to decide how one of them is applied.
+   *
+   * No `ruleId` and no `version` in the address, unlike `approveRow`: this
+   * press is not scoped to one rule, and a row's own findings may come from
+   * several rules and, within one rule, several versions (`RowDetailService`
+   * applies no version filter for the same reason). Every pending row of the
+   * one source `table` names is a candidate.
+   *
+   * Ambiguous findings (`nextValue === null`, 1.1.12) are filtered out before
+   * `prepare` ever sees them, rather than being passed in and having its
+   * throw caught: that throw means "a data-integrity fault", the same meaning
+   * it carries everywhere else in this file, and turning it into "skip this
+   * one" here would make it mean two different things depending on which
+   * caller triggered it. They are left pending and counted into `skipped`,
+   * never written and never flipped to any other status.
+   *
+   * The rows that do propose a value are validated by the same `prepare` and
+   * written by the same `applyPrepared` that `approveRule` and `approveRow`
+   * already use, and each is then flipped to `approved` by its own primary
+   * key — not by one blanket `UPDATE … WHERE legacy_id = ?`, because that
+   * would also catch the ambiguous rows this press must leave untouched.
+   *
+   * An unknown `table`, or a row with nothing pending, approves nothing and
+   * says so with every count at zero — the same "count, not a fault" line
+   * every other press in this file draws.
+   */
+  async approveAllOnRow(table: string, legacyId: string): Promise<RowApproveAllReport> {
+    return await this.dataSource.transaction(async (manager: EntityManager) => {
+      const nothing: RowApproveAllReport = { table, legacyId, approved: 0, updated: 0, skipped: 0 };
+      const source = approvalSources.get(table);
+
+      if (source === undefined) {
+        return nothing;
+      }
+
+      const rows = await manager.getRepository(source.rules).find({
+        where: { legacyId, status: 'pending' },
+        order: { ruleId: 'ASC', version: 'ASC', column: 'ASC' },
+      });
+
+      if (rows.length === 0) {
+        return nothing;
+      }
+
+      const proposing = rows.filter((row) => row.nextValue !== null);
+      const skipped = rows.length - proposing.length;
+
+      if (proposing.length === 0) {
+        return { table, legacyId, approved: 0, updated: 0, skipped };
+      }
+
+      const prepared = await prepare(manager, source, proposing);
+      const updated = await applyPrepared(manager, prepared);
+
+      for (const { row } of prepared.rows) {
+        await manager.update(
+          source.rules,
+          { legacyId: row.legacyId, ruleId: row.ruleId, version: row.version, column: row.column, status: 'pending' },
+          { status: 'approved' },
+        );
+      }
+
+      return { table, legacyId, approved: prepared.rows.length, updated, skipped };
     });
   }
 }
