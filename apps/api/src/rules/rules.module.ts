@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LegacyModule } from '../legacy/legacy.module';
+import { RowsModule } from '../rows/rows.module';
+import { RowListService } from './row-list.service';
 import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
 import { RuleDetailService } from './rule-detail.service';
@@ -89,9 +91,19 @@ import { Rule } from './rule.entity';
  * so this is exported too — and it needs no `forFeature` of its own either:
  * `rule` and `rule_version` are registered here, and the three per-source rule
  * tables by `LegacyModule`.
+ *
+ * `RowListService` is the rows screen's list (1.6.1, 1.6.2) — a different
+ * screen over the same idea, keyed by legacy id rather than by rule. It sits
+ * here rather than in a service of its own under `rows/` because it is the
+ * same shape of thing `RuleListService` and `RuleDetailService` already are: a
+ * read-only aggregator over legacy data, the three per-source rule tables, and
+ * (new) the rejection table. That last one is `RowsModule`'s, which is why this
+ * module now imports it — the same way it imports `LegacyModule` for the rest.
+ * It is exported for the same reason every other read here is: the endpoint
+ * that serves it lives in `rows-list/`, a module of its own.
  */
 @Module({
-  imports: [LegacyModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
+  imports: [LegacyModule, RowsModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
   providers: [
     RuleVersionsService,
     RuleRunnerService,
@@ -101,6 +113,7 @@ import { Rule } from './rule.entity';
     RuleListService,
     RuleDetailService,
     RuleRevisionsService,
+    RowListService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -114,6 +127,7 @@ import { Rule } from './rule.entity';
     RuleListService,
     RuleDetailService,
     RuleRevisionsService,
+    RowListService,
   ],
 })
 export class RulesModule {}

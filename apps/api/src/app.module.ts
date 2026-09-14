@@ -8,6 +8,8 @@ import { DuplicatesModule } from './duplicates/duplicates.module';
 import { HealthModule } from './health/health.module';
 import { LegacyImportModule } from './import/legacy-import.module';
 import { LegacyModule } from './legacy/legacy.module';
+import { RowsModule } from './rows/rows.module';
+import { RowsListModule } from './rows-list/rows-list.module';
 import { RuleDetailModule } from './rule-detail/rule-detail.module';
 import { RulesListModule } from './rules-list/rules-list.module';
 import { RulesModule } from './rules/rules.module';
@@ -26,6 +28,8 @@ import { RulesModule } from './rules/rules.module';
     RulesListModule,
     RuleDetailModule,
     DuplicatesModule,
+    RowsModule,
+    RowsListModule,
   ],
 })
 export class AppModule {}
