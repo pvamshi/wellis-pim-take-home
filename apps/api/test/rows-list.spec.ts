@@ -71,7 +71,6 @@ describe('the rows list', () => {
     const complete = rows.map((row, index) => ({
       ruleId: 'R-ROWS-SEED',
       version: 1,
-      column: 'phone',
       previousValue: null,
       nextValue: null,
       status: 'pending' as LegacyRuleStatus,
