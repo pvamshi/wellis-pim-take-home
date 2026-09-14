@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LegacyModule } from '../legacy/legacy.module';
 import { RowsModule } from '../rows/rows.module';
+import { RowDetailService } from './row-detail.service';
 import { RowListService } from './row-list.service';
 import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
@@ -101,6 +102,17 @@ import { Rule } from './rule.entity';
  * module now imports it — the same way it imports `LegacyModule` for the rest.
  * It is exported for the same reason every other read here is: the endpoint
  * that serves it lives in `rows-list/`, a module of its own.
+ *
+ * `RowDetailService` is `RuleDetailService`'s transpose: one row expanded
+ * (1.6.3), gathering findings across every rule instead of one rule's findings
+ * across every row. It sits here for the same reason `RowListService` does —
+ * the tables are this module's — and needs no `forFeature` of its own either:
+ * `rule` is registered here, and the three legacy data tables and the three
+ * per-source rule tables by `LegacyModule`. It reads no `RowRejection` at all,
+ * unlike `RowListService`, so it needs nothing from `RowsModule` beyond what
+ * this module already imports. Its endpoint lives in `row-detail/`, a sibling
+ * of `rows-list/` exactly as `rule-detail/` sits beside `rules-list/`, so this
+ * is exported too.
  */
 @Module({
   imports: [LegacyModule, RowsModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -114,6 +126,7 @@ import { Rule } from './rule.entity';
     RuleDetailService,
     RuleRevisionsService,
     RowListService,
+    RowDetailService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -128,6 +141,7 @@ import { Rule } from './rule.entity';
     RuleDetailService,
     RuleRevisionsService,
     RowListService,
+    RowDetailService,
   ],
 })
 export class RulesModule {}

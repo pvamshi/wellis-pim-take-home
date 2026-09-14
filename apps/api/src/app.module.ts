@@ -10,6 +10,7 @@ import { LegacyImportModule } from './import/legacy-import.module';
 import { LegacyModule } from './legacy/legacy.module';
 import { RowsModule } from './rows/rows.module';
 import { RowsListModule } from './rows-list/rows-list.module';
+import { RowDetailModule } from './row-detail/row-detail.module';
 import { RuleDetailModule } from './rule-detail/rule-detail.module';
 import { RulesListModule } from './rules-list/rules-list.module';
 import { RulesModule } from './rules/rules.module';
@@ -30,6 +31,7 @@ import { RulesModule } from './rules/rules.module';
     DuplicatesModule,
     RowsModule,
     RowsListModule,
+    RowDetailModule,
   ],
 })
 export class AppModule {}
