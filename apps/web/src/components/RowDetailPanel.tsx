@@ -262,7 +262,11 @@ export function RowDetailPanel({
   }
 
   /** The cross on an ambiguous finding, pressed inline rather than through the dialog (1.2.13). */
-  function onFindingDeclineWithReason(group: RowDetailRuleGroup, row: RuleDetailRow, reason: string) {
+  function onFindingDeclineWithReason(
+    group: RowDetailRuleGroup,
+    row: RuleDetailRow,
+    reason: string,
+  ) {
     const address = addressOf(group, row);
 
     press(async () => {
@@ -278,7 +282,12 @@ export function RowDetailPanel({
   // rule" tick are chosen between (1.2.7, 1.2.8) — this row's own group
   // carries the ruleId/version that choice acts on.
   function onFindingDecline(group: RowDetailRuleGroup, row: RuleDetailRow) {
-    setDeclining({ ruleId: group.ruleId, ruleName: group.ruleName, row, address: addressOf(group, row) });
+    setDeclining({
+      ruleId: group.ruleId,
+      ruleName: group.ruleName,
+      row,
+      address: addressOf(group, row),
+    });
   }
 
   function runDecline({ reason, modifyRule }: DeclineDecision) {
@@ -410,13 +419,28 @@ export function RowDetailPanel({
   const columns = detail.dataRows[0] === undefined ? [] : Object.keys(detail.dataRows[0]);
   const anyPending = detail.findings.some((group) => group.pending.length > 0);
 
+  /**
+   * Whether Approve all has anything to approve.
+   *
+   * Not the same question as `anyPending`. Approve all takes only findings that
+   * propose a value (1.6.4), so on a row whose pending findings are all from
+   * ambiguous rules it would approve nothing and report the whole row skipped —
+   * a press that can only tell you it did nothing. Decline all has no such
+   * problem: the cross needs no proposal.
+   */
+  const anyApprovable = detail.findings.some(
+    (group) => !group.ambiguous && group.pending.length > 0,
+  );
+
   return (
     <Stack gap="lg">
       {actionError !== null && (
         <Alert color="red" title="That press did not land">
           <Stack gap="xs">
             <Text size="sm">{actionError.message}</Text>
-            {actionError.status !== null && <Text size="sm">HTTP status: {actionError.status}</Text>}
+            {actionError.status !== null && (
+              <Text size="sm">HTTP status: {actionError.status}</Text>
+            )}
             <Text size="sm">
               URL tried: <Code>{actionError.url}</Code>
             </Text>
@@ -470,8 +494,12 @@ export function RowDetailPanel({
           </Text>
         )}
         {detail.findings.map((group) => {
-          const pendingRows = group.pending.map((finding) => toRuleDetailRow(table, legacyId, finding));
-          const settledRows = group.settled.map((finding) => toRuleDetailRow(table, legacyId, finding));
+          const pendingRows = group.pending.map((finding) =>
+            toRuleDetailRow(table, legacyId, finding),
+          );
+          const settledRows = group.settled.map((finding) =>
+            toRuleDetailRow(table, legacyId, finding),
+          );
 
           return (
             <Stack key={`${group.ruleId}:${group.version}`} gap="xs">
@@ -495,8 +523,10 @@ export function RowDetailPanel({
                   actions={{
                     onApprove: (row) => onFindingApprove(group, row),
                     onDecline: (row) => onFindingDecline(group, row),
-                    onApproveWithValue: (row, value) => onFindingApproveWithValue(group, row, value),
-                    onDeclineWithReason: (row, reason) => onFindingDeclineWithReason(group, row, reason),
+                    onApproveWithValue: (row, value) =>
+                      onFindingApproveWithValue(group, row, value),
+                    onDeclineWithReason: (row, reason) =>
+                      onFindingDeclineWithReason(group, row, reason),
                     busy,
                   }}
                 />
@@ -513,7 +543,11 @@ export function RowDetailPanel({
                   <Text size="xs" c="dimmed" fw={600}>
                     Settled
                   </Text>
-                  <RuleRowsTable rows={settledRows} ambiguous={group.ambiguous} description={group.description} />
+                  <RuleRowsTable
+                    rows={settledRows}
+                    ambiguous={group.ambiguous}
+                    description={group.description}
+                  />
                 </Stack>
               )}
             </Stack>
@@ -522,7 +556,7 @@ export function RowDetailPanel({
       </Stack>
 
       <Group align="flex-end">
-        <Button color="green" onClick={onApproveAll} disabled={busy || !anyPending}>
+        <Button color="green" onClick={onApproveAll} disabled={busy || !anyApprovable}>
           Approve all
         </Button>
         <TextInput
@@ -572,8 +606,8 @@ export function RowDetailPanel({
             id, approved in the same transaction that writes it, so it shows
             up above under "Hand edit" the next time this row is read.
           */}
-          Written under the reserved &ldquo;Hand edit&rdquo; rule id, so the modification log records
-          it like any other change.
+          Written under the reserved &ldquo;Hand edit&rdquo; rule id, so the modification log
+          records it like any other change.
         </Text>
         <Group align="flex-end">
           <Select

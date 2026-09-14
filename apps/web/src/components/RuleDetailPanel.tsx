@@ -399,13 +399,23 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
       </Stack>
 
       <Group>
-        <Button
-          color="green"
-          onClick={onRuleApprove}
-          disabled={busy || version === null || detail.pending.length === 0}
-        >
-          Approve rule
-        </Button>
+        {/*
+          Not drawn at all for an ambiguous rule. Ambiguity is rule-wide
+          (1.1.12), so every one of its pending rows proposes nothing and a
+          rule-level approve has nothing whatever to apply — it is the row tick's
+          bigger sibling, and the same button that could only fail. Disabling it
+          would be the wrong shape: there is no state of an ambiguous rule in
+          which it becomes pressable, so it does not belong on the screen.
+        */}
+        {!detail.ambiguous && (
+          <Button
+            color="green"
+            onClick={onRuleApprove}
+            disabled={busy || version === null || detail.pending.length === 0}
+          >
+            Approve rule
+          </Button>
+        )}
         <Button
           color="red"
           variant="light"

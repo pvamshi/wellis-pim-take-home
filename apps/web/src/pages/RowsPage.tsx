@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Accordion,
   Alert,
@@ -8,12 +8,12 @@ import {
   Container,
   Group,
   Loader,
-  Pagination,
   SegmentedControl,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ApiError, getRows, rowsUrl } from '../api/client';
 import type { LegacySourceTable, RowListEntry, RowState } from '../api/types';
 import { AppNav } from '../components/AppNav';
@@ -28,13 +28,27 @@ type TableFilter = 'all' | LegacySourceTable;
 type StateFilter = 'all' | RowState;
 
 /**
- * The page size `GET /rows` pages by, restated rather than imported
- * (`row-list.service.ts`'s own `ROWS_PAGE_SIZE`) — there is no shared package
- * between `apps/api` and `apps/web`. If the backend's constant ever changes
- * this one has to change with it by hand, the same risk every other restated
- * constant in this file already carries.
+ * How tall a collapsed row is assumed to be before it has been measured.
+ *
+ * Only a starting guess: every rendered item is measured for real, so this
+ * decides how close the scrollbar is to the truth for rows nobody has scrolled
+ * to yet, and nothing else. An expanded row is several times this, and is
+ * measured like any other.
  */
-const ROWS_PAGE_SIZE = 50;
+const ESTIMATED_ROW_HEIGHT = 60;
+
+/**
+ * How much of the list is drawn, in pixels.
+ *
+ * The list scrolls inside this rather than down the document, because the
+ * virtualiser has to own a scroll container to know what is on screen. Tall
+ * enough that the filters and the heading stay put while a long list moves
+ * under them.
+ */
+const LIST_HEIGHT = 640;
+
+/** A stable empty array, so the virtualiser is not rebuilt on every render. */
+const EMPTY_ROWS: RowListEntry[] = [];
 
 /** The on-screen name for each state (1.6.1). */
 const STATE_LABELS: Record<RowState, string> = {
@@ -65,7 +79,7 @@ const STATE_FILTER_DATA = [
 
 /**
  * The rows screen (1.6.1): every legacy row with its state, filterable to one
- * table and one state, paged; expanding a row mounts `RowDetailPanel`.
+ * table and one state, virtualised; expanding a row mounts `RowDetailPanel`.
  *
  * Same `Container`/`Stack`/loading-loaded-failed shape `RulesPage` already
  * establishes, so the two screens read as one app. `keepMounted={false}` on
@@ -77,7 +91,6 @@ export function RowsPage() {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [tableFilter, setTableFilter] = useState<TableFilter>('all');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
-  const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
 
@@ -91,7 +104,6 @@ export function RowsPage() {
       {
         table: tableFilter === 'all' ? undefined : tableFilter,
         state: stateFilter === 'all' ? undefined : stateFilter,
-        page,
       },
       controller.signal,
     )
@@ -109,7 +121,7 @@ export function RowsPage() {
       });
 
     return () => controller.abort();
-  }, [tableFilter, stateFilter, page, attempt]);
+  }, [tableFilter, stateFilter, attempt]);
 
   function retry() {
     setState({ kind: 'loading' });
@@ -127,22 +139,42 @@ export function RowsPage() {
   function onTableFilterChange(value: string) {
     setState({ kind: 'loading' });
     setTableFilter(value as TableFilter);
-    setPage(1);
   }
 
   function onStateFilterChange(value: string) {
     setState({ kind: 'loading' });
     setStateFilter(value as StateFilter);
-    setPage(1);
   }
 
-  function onPageChange(value: number) {
-    setState({ kind: 'loading' });
-    setPage(value);
-  }
+  /**
+   * The list, virtualised.
+   *
+   * `GET /rows` answers with the whole filtered set — 2466 patients unfiltered
+   * — and only the items on screen are rendered. Hooks cannot be called
+   * conditionally, so the row array is empty except in the loaded state and the
+   * virtualiser is built on every render regardless.
+   *
+   * `measureElement` measures each item as it is drawn rather than trusting the
+   * estimate, which is what makes this work on an accordion at all: an expanded
+   * row is many times the height of a collapsed one, and expanding one must not
+   * push every row below it out of place.
+   */
+  const rows = state.kind === 'loaded' ? state.rows : EMPTY_ROWS;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 8,
+  });
 
-  const totalPages =
-    state.kind === 'loaded' ? Math.max(1, Math.ceil(state.total / ROWS_PAGE_SIZE)) : 1;
+  const visible = virtualizer.getVirtualItems();
+
+  // Two spacers rather than absolute positioning, so the accordion's own
+  // `separated` spacing and its focus order are the ones Mantine draws.
+  const above = visible.length > 0 ? visible[0].start : 0;
+  const below =
+    visible.length > 0 ? virtualizer.getTotalSize() - visible[visible.length - 1].end : 0;
 
   return (
     <Container size="md" py="xl">
@@ -198,23 +230,33 @@ export function RowsPage() {
         )}
 
         {state.kind === 'loaded' && state.rows.length > 0 && (
-          <Accordion variant="separated" keepMounted={false}>
-            {/* Keyed by table + legacy id, which cannot repeat within a table on this list. */}
-            {state.rows.map((row) => (
-              <Accordion.Item key={`${row.table}:${row.legacyId}`} value={`${row.table}:${row.legacyId}`}>
-                <Accordion.Control>
-                  <Group justify="space-between" wrap="nowrap" pr="sm">
-                    <Group gap="xs" wrap="nowrap">
-                      <Text fw={600}>{row.table}</Text>
-                      <Code>{row.legacyId}</Code>
-                    </Group>
-                    <Badge variant="light" color={STATE_COLORS[row.state]}>
-                      {STATE_LABELS[row.state]}
-                    </Badge>
-                  </Group>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  {/*
+          <div ref={scrollRef} style={{ height: LIST_HEIGHT, overflowY: 'auto' }}>
+            <Accordion variant="separated" keepMounted={false}>
+              {above > 0 && <div style={{ height: above }} />}
+              {/* Keyed by table + legacy id, which cannot repeat within a table on this list. */}
+              {visible.map((item) => {
+                const row = rows[item.index];
+
+                return (
+                  <Accordion.Item
+                    key={`${row.table}:${row.legacyId}`}
+                    value={`${row.table}:${row.legacyId}`}
+                    ref={virtualizer.measureElement}
+                    data-index={item.index}
+                  >
+                    <Accordion.Control>
+                      <Group justify="space-between" wrap="nowrap" pr="sm">
+                        <Group gap="xs" wrap="nowrap">
+                          <Text fw={600}>{row.table}</Text>
+                          <Code>{row.legacyId}</Code>
+                        </Group>
+                        <Badge variant="light" color={STATE_COLORS[row.state]}>
+                          {STATE_LABELS[row.state]}
+                        </Badge>
+                      </Group>
+                    </Accordion.Control>
+                    <Accordion.Panel>
+                      {/*
                     Everything below is `RowDetailPanel`'s: it reads GET
                     /rows/:table/:legacyId when this item is expanded. This
                     page still issues exactly one request of its own, for the
@@ -226,25 +268,22 @@ export function RowsPage() {
                     rejecting moves it to rejected regardless of findings
                     (1.6.2).
                   */}
-                  <RowDetailPanel
-                    table={row.table}
-                    legacyId={row.legacyId}
-                    initialRejected={row.state === 'rejected'}
-                    onChanged={(outcome) => {
-                      setLastOutcome(outcome);
-                      refresh();
-                    }}
-                  />
-                </Accordion.Panel>
-              </Accordion.Item>
-            ))}
-          </Accordion>
-        )}
-
-        {state.kind === 'loaded' && totalPages > 1 && (
-          <Group justify="center">
-            <Pagination value={page} onChange={onPageChange} total={totalPages} />
-          </Group>
+                      <RowDetailPanel
+                        table={row.table}
+                        legacyId={row.legacyId}
+                        initialRejected={row.state === 'rejected'}
+                        onChanged={(outcome) => {
+                          setLastOutcome(outcome);
+                          refresh();
+                        }}
+                      />
+                    </Accordion.Panel>
+                  </Accordion.Item>
+                );
+              })}
+              {below > 0 && <div style={{ height: below }} />}
+            </Accordion>
+          </div>
         )}
 
         {state.kind === 'failed' && (

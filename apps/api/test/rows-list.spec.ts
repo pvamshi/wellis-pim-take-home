@@ -241,10 +241,10 @@ describe('the rows list', () => {
     ]);
   });
 
-  it('pages a large result stably, with total reflecting the filtered count', async () => {
+  it('returns every row the filter matches, in one answer, in a stable order', async () => {
     const ids = Array.from(
       { length: 120 },
-      (_, index) => `P-PAGE-${String(index).padStart(4, '0')}`,
+      (_, index) => `P-MANY-${String(index).padStart(4, '0')}`,
     );
 
     for (let start = 0; start < ids.length; start += 50) {
@@ -256,38 +256,17 @@ describe('the rows list', () => {
       );
     }
 
-    const first = await loadRows({ table: 'patient', page: '1' });
-    const second = await loadRows({ table: 'patient', page: '2' });
-    const third = await loadRows({ table: 'patient', page: '3' });
+    const { body } = await loadRows({ table: 'patient' });
 
-    // total is the filtered count (120), not any one page's length (50, 50, 20).
-    expect(first.body.total).toBe(120);
-    expect(second.body.total).toBe(120);
-    expect(third.body.total).toBe(120);
+    // Not paged: the screen virtualises, so the endpoint hands over the whole
+    // filtered set and lets the screen decide how much of it to draw. A page
+    // size here would be a limit nobody could scroll past.
+    expect(body.total).toBe(120);
+    expect(body.rows).toHaveLength(120);
 
-    expect(first.body.rows).toHaveLength(50);
-    expect(second.body.rows).toHaveLength(50);
-    expect(third.body.rows).toHaveLength(20);
-
-    // Stable and non-overlapping: concatenating every page recovers every id
-    // exactly once, in the same sorted order the unpaged list would give.
-    const pagedIds = [...first.body.rows, ...second.body.rows, ...third.body.rows].map(
-      (row) => row.legacyId,
-    );
-
-    expect(pagedIds).toEqual([...ids].sort());
-  });
-
-  it('answers an empty page rather than an error past the last page', async () => {
-    await seedPatient('P-ONLY-ONE');
-
-    const { status, body } = await loadRows({ table: 'patient', page: '9' });
-
-    // A page number the filter has no rows for is well-formed, not a fault —
-    // the same "empty result is a state, not a failure" line the rules list
-    // already draws.
-    expect(status).toBe(200);
-    expect(body).toEqual({ rows: [], total: 1 });
+    // Sorted, so a second load is the same list in the same places under a
+    // reader who has scrolled.
+    expect(body.rows.map((row) => row.legacyId)).toEqual([...ids].sort());
   });
 
   it('answers an empty list rather than an error when the dataset is empty', async () => {
@@ -307,10 +286,5 @@ describe('the rows list', () => {
     const { status } = await loadRows({ state: 'nonsense' });
 
     expect(status).toBe(400);
-  });
-
-  it('rejects a page that is not a positive integer', async () => {
-    expect((await loadRows({ page: '0' })).status).toBe(400);
-    expect((await loadRows({ page: 'one' })).status).toBe(400);
   });
 });

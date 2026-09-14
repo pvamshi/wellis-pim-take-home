@@ -268,9 +268,12 @@ export interface RowListEntry {
 }
 
 /**
- * The backend's `GET /rows` response: a page of rows, plus the count the
- * current filter matches (1.6.1) — what `Pagination` needs to compute how
- * many pages there are.
+ * The backend's `GET /rows` response: every row the current filter matches, and
+ * how many that is (1.6.1).
+ *
+ * Not a page. The screen virtualises the list, so it draws only the rows on
+ * screen however many come back, and a page size would be a limit the reader
+ * could not scroll past.
  */
 export interface RowsListResponse {
   readonly rows: RowListEntry[];

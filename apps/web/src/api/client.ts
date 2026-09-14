@@ -332,8 +332,6 @@ export function rowUrl(table: LegacySourceTable, legacyId: string, path = ''): s
 export interface RowsListFilter {
   readonly table?: LegacySourceTable;
   readonly state?: RowState;
-  /** 1-based. Defaults to the first page. */
-  readonly page?: number;
 }
 
 /**
@@ -351,7 +349,6 @@ export async function getRows(
   const params = new URLSearchParams();
   if (filter.table !== undefined) params.set('table', filter.table);
   if (filter.state !== undefined) params.set('state', filter.state);
-  if (filter.page !== undefined) params.set('page', String(filter.page));
 
   const query = params.toString();
   return await requestJson<RowsListResponse>(query === '' ? rowsUrl : `${rowsUrl}?${query}`, {

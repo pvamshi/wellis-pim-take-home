@@ -3,14 +3,17 @@ import type { LegacySourceTable } from '../legacy/legacy-source-table';
 import { RowListService, type RowListEntry, type RowState } from '../rules/row-list.service';
 
 /**
- * A page of the rows screen (1.6.1): the rows themselves, and the count the
- * current filter matches.
+ * The rows screen (1.6.1): every row the current filter matches, and how many
+ * that is.
  *
- * `{ rows, total }` rather than a bare array, unlike `RulesListResponse`: that
- * list is bounded by the rule catalogue and needs no page count, this one is
- * bounded by the legacy export (2466 patients, the real size) and is paged, so
- * the frontend's `Pagination` needs `total` to compute how many pages there
- * are.
+ * Not paged. The screen virtualises the list, drawing only the rows on screen,
+ * so a page size here would be a second and coarser limit in front of one
+ * already doing the job — and one the reader could not scroll past. The rule
+ * detail endpoint already takes this line, returning all 340 rows of a rule.
+ *
+ * `{ rows, total }` rather than a bare array, unlike `RulesListResponse`:
+ * `total` is what the heading says, and what tells a reader whether a filter
+ * caught anything at all.
  */
 export interface RowsListResponse {
   readonly rows: RowListEntry[];
@@ -73,28 +76,6 @@ function readState(value: unknown): RowState | undefined {
 }
 
 /**
- * Reads the `page` query parameter, or says what is wrong with it.
- *
- * Absent means the first page — 1.6.1 says nothing about a caller who never
- * asked for one — and anything present that is not a positive integer is a
- * 400. An out-of-range page (past the last one the filter has) is not an
- * error: it is well-formed and answers an empty `rows` with the correct
- * `total`, the same "empty result is a state, not a failure" line the rest of
- * this screen draws.
- */
-function readPage(value: unknown): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
-    throw new BadRequestException('page must be a positive integer');
-  }
-
-  return Number(value);
-}
-
-/**
  * The endpoint the rows screen loads (1.6.1, 1.6.2).
  *
  * It delegates and nothing else. The join is `RowListService`'s, which lives
@@ -102,11 +83,10 @@ function readPage(value: unknown): number | undefined {
  * from it for exactly this — the same division `rules-list/` and
  * `rule-detail/` already keep between an endpoint and the layer it reads.
  *
- * `table`, `state` and `page` are read from the query string, not the body:
- * this is a GET, and the same three narrowings 1.6.1 describes ("filtered to
- * one state") plus the table filter this task's own instructions ask for.
- * None is required — an unfiltered, first-page read is the default a caller
- * who names nothing gets.
+ * `table` and `state` are read from the query string, not the body: this is a
+ * GET, and they are the narrowing 1.6.1 describes ("filtered to one state")
+ * plus the table filter. Neither is required — an unfiltered read is the
+ * default a caller who names nothing gets.
  */
 @Controller('rows')
 export class RowsListController {
@@ -116,12 +96,10 @@ export class RowsListController {
   async list(
     @Query('table') table: unknown,
     @Query('state') state: unknown,
-    @Query('page') page: unknown,
   ): Promise<RowsListResponse> {
     return await this.rows.list({
       table: readTable(table),
       state: readState(state),
-      page: readPage(page),
     });
   }
 }

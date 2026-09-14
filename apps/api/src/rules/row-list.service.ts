@@ -36,28 +36,25 @@ export interface RowListEntry {
 export interface RowListFilter {
   readonly table?: LegacySourceTable;
   readonly state?: RowState;
-  /** 1-based. Defaults to the first page. */
-  readonly page?: number;
 }
 
 /**
- * A page of the rows screen: the rows themselves, and the filtered total.
+ * The rows the filter matches, and how many that is.
  *
- * `total` is the count the current filter matches, not the grand count across
- * every state and table — what a `Pagination` control needs to compute how
- * many pages there are, not how big the whole dataset is.
+ * Every one of them, not a page. The screen virtualises the list — it draws the
+ * few rows on screen and no more — so paging here would only put a second,
+ * coarser limit in front of one that is already doing the job, and would put it
+ * between the user and rows they can reach by scrolling. It is the same
+ * reasoning the rule detail endpoint already follows, which returns all 340 rows
+ * of a rule and lets the screen scroll them.
+ *
+ * `total` is the count this filter matches, which is what a heading says and
+ * what tells the reader whether a filter caught anything.
  */
 export interface RowListResult {
   readonly rows: RowListEntry[];
   readonly total: number;
 }
-
-/**
- * Fixed rather than caller-adjustable: there is no data-grid or virtualization
- * package in this stack (tech-stack), and a plain Mantine `<Table>` needs a
- * small, fixed page size to stay responsive.
- */
-export const ROWS_PAGE_SIZE = 50;
 
 /** The three tables a legacy row can come from, and how each is read. */
 interface RowSource {
@@ -168,20 +165,15 @@ export class RowListService {
         ? entries
         : entries.filter((entry) => entry.state === filter.state);
 
-    // Stable order, so a page is the same rows on a second load: 1.6.1 says
-    // nothing about ordering, and an order that were the database's rather
-    // than the screen's could reshuffle a page out from under a caller who
-    // paged past the first.
+    // Stable order, so the list is the same list on a second load: 1.6.1 says
+    // nothing about ordering, and an order that were the database's rather than
+    // the screen's could reshuffle under a reader who had scrolled.
     filtered.sort(
       (left, right) =>
         left.table.localeCompare(right.table) || left.legacyId.localeCompare(right.legacyId),
     );
 
-    const total = filtered.length;
-    const page = filter.page ?? 1;
-    const start = (page - 1) * ROWS_PAGE_SIZE;
-
-    return { rows: filtered.slice(start, start + ROWS_PAGE_SIZE), total };
+    return { rows: filtered, total: filtered.length };
   }
 
   /** Every distinct legacy id the source's data table carries (1.0.3: not unique). */
