@@ -11,11 +11,18 @@ import { RuleVersion } from './rule-version.entity';
 /**
  * One line of the rules screen (1.2.1): a rule that has work waiting.
  *
- * Four fields and no more. `ruleName` is how a line names the rule it is, and
+ * Five fields and no more. `ruleName` is how a line names the rule it is, and
  * `version` is the half of the address the count belongs to — 1.2.1 filters on
  * the active version, and every row action is addressed by `(ruleId, version)`.
  * Everything else a rule knows about itself belongs to the screen that expands
  * one, not to the list that leads to it.
+ *
+ * `ambiguous` is the exception, and earns its place by changing what opening a
+ * line costs. An ambiguous rule's rows cannot be ticked through in a batch
+ * (1.1.12) — each one needs a value typed into it — so "120 pending" means an
+ * afternoon on one line and a second on another, and which it is has to be
+ * readable before the line is opened. It is free to send: the `rule` row is
+ * already joined for the name.
  */
 export interface RuleListEntry {
   readonly ruleId: string;
@@ -24,6 +31,8 @@ export interface RuleListEntry {
   readonly version: number;
   /** Rows of this rule and version still awaiting a decision. Never zero. */
   readonly pending: number;
+  /** Whether this rule proposes values or only reports what it cannot fix (1.1.12). */
+  readonly ambiguous: boolean;
 }
 
 /**
@@ -124,6 +133,7 @@ export class RuleListService {
           ruleName: version.rule.ruleName,
           version: version.version,
           pending: count,
+          ambiguous: version.rule.ambiguous,
         },
       ];
     });

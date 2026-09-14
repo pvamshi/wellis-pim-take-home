@@ -271,7 +271,21 @@ export function RulesPage() {
                         v{rule.version}
                       </Text>
                     </Group>
-                    <Badge variant="light">{rule.pending} pending</Badge>
+                    <Group gap="xs" wrap="nowrap">
+                      {/*
+                        Said on the closed line because it changes what opening
+                        it costs (1.1.12): an ambiguous rule proposes nothing,
+                        so its pending rows are answered one at a time rather
+                        than ticked through together. Yellow is the colour the
+                        panel's own notice uses for the same fact.
+                      */}
+                      {rule.ambiguous && (
+                        <Badge variant="light" color="yellow">
+                          Needs a value
+                        </Badge>
+                      )}
+                      <Badge variant="light">{rule.pending} pending</Badge>
+                    </Group>
                   </Group>
                 </Accordion.Control>
                 <Accordion.Panel>

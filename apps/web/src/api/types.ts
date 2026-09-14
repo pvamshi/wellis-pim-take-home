@@ -28,6 +28,12 @@ export interface RuleListEntry {
   readonly version: number;
   /** Rows of this rule and version still awaiting a decision. Never zero. */
   readonly pending: number;
+  /**
+   * Whether this rule proposes values or only reports what it cannot fix
+   * (1.1.12). On the list so a line can say so before it is opened: an
+   * ambiguous rule's pending count is work per row, not a batch to tick.
+   */
+  readonly ambiguous: boolean;
 }
 
 /**

@@ -59,12 +59,13 @@ describe('the rules list', () => {
     ruleId: string,
     versionNumbers: number[],
     active?: number,
+    ambiguous = false,
   ): Promise<void> {
     await rules.save({
       ruleId,
       ruleName: `${ruleId} name`,
       description: `${ruleId} description`,
-      ambiguous: false,
+      ambiguous,
     });
 
     for (const version of versionNumbers) {
@@ -185,6 +186,29 @@ describe('the rules list', () => {
         ruleName: 'R-WORK name',
         version: 1,
         pending: 340,
+        ambiguous: false,
+      },
+    ]);
+  });
+
+  it('says on the line whether a rule can propose a value at all', async () => {
+    await seedRule('R-ASKS', [1], 1, true);
+    await seedFindings(patientRules, findings('R-ASKS', 3));
+
+    const { status, body } = await loadRules();
+
+    // 1.1.12 is a property of the rule, and the list is where the human decides
+    // which rule to open next. An ambiguous rule's rows are answered one at a
+    // time, so its count means something different from the same number beside
+    // a rule that proposes — and the line has to say which before it is opened.
+    expect(status).toBe(200);
+    expect(body).toEqual([
+      {
+        ruleId: 'R-ASKS',
+        ruleName: 'R-ASKS name',
+        version: 1,
+        pending: 3,
+        ambiguous: true,
       },
     ]);
   });

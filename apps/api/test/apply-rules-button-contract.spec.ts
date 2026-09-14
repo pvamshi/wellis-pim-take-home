@@ -451,7 +451,13 @@ describe('the “Apply rules” button, pressed by the screen’s own client', (
     // reports the rows the press produced. Press without refreshing and the
     // screen would still show the empty list above.
     expect(await getRules()).toEqual([
-      { ruleId: 'R-BTN-LIST', ruleName: 'R-BTN-LIST name', version: 1, pending: 2 },
+      {
+        ruleId: 'R-BTN-LIST',
+        ruleName: 'R-BTN-LIST name',
+        version: 1,
+        pending: 2,
+        ambiguous: false,
+      },
     ]);
 
     // And the refresh really is a second request, to the list's own address,
