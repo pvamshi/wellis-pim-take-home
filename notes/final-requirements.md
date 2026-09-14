@@ -448,6 +448,40 @@ The end user is one of us, not a customer. We assume they will not approve a rul
 while waiting on a modification they just asked for, and we build no guard
 against it.
 
+### 1.2.13 An ambiguous finding is answered, not ticked
+
+```gherkin
+Scenario: the human supplies what the rule would not guess
+  Given an ambiguous rule found a bad date of birth on patient P-0310
+  When Vamshi types the correct date and presses Apply
+  Then that value is written to the column
+  And the finding records it and is approved
+  And it is one transaction, as any approval is (1.2.5)
+
+Scenario: there is nothing to tick
+  Given a rule is ambiguous
+  Then its rows carry no approve button at all
+  And a value may only be supplied where the rule proposes none
+```
+
+An ambiguous rule proposes nothing (1.1.12), so a tick on its rows has nothing
+to apply — the screen offers a box instead, and what is typed becomes that
+finding's proposal and is applied down the same path as a rule's own. The box
+starts at what the column holds, because the human is nearly always correcting a
+value rather than inventing one. A blank box is an answer: it says the column
+should hold nothing.
+
+A value is never accepted for a finding that already proposes one. Overriding a
+proposal would make the rule row a record of something the rule never said, and
+the log (1.3) would stop being true. Disagreeing with a proposal is the cross
+(1.2.7); changing one is a new version of the rule (1.1.8, 1.2.8).
+
+The cross on such a row takes its reason inline rather than through the dialog.
+The dialog exists to choose between declining a row and parking a version
+(1.2.8), and that choice is already made by which button was pressed; on a row
+nobody can propose a value for, why it was waved through is the only thing left
+to record.
+
 ---
 
 ## 1.3 Modification log
@@ -488,6 +522,144 @@ The workflow is not limited to a new version of the same rule. It may write a
 narrowed version of the old rule and create a new rule alongside it for the case
 that was missed. Whether the old rule becomes active again is the workflow's
 decision.
+
+---
+
+## 1.6 The rows screen
+
+The rules screen (1.2) is the dataset seen through the rules. This is the same
+work seen through the rows: every legacy row, what state it is in, and what is
+still standing between it and being fit to import.
+
+Both are needed and they answer different questions. "What is wrong across the
+dataset" is a rule; "is this patient ready" is a row. Neither view can answer
+the other's question without reading every line of it.
+
+Not to be confused with 1.4. The table promoted *into* is still next phase and
+still undesigned; this is a screen over the legacy tables we already have.
+
+### 1.6.1 Every row, with its state
+
+```gherkin
+Scenario: the screen lists the dataset
+  Given 2466 patients were imported
+  When Vamshi opens the rows screen
+  Then every one of them is listed with its state
+  And the list can be filtered to one state
+```
+
+The three states are **Import pending**, **Import clean** and **Import
+rejected**.
+
+### 1.6.2 Two states are derived, one is stored
+
+```gherkin
+Scenario: a row with findings still waiting
+  Given patient P-0310 has at least one pending finding
+  Then its state is Import pending
+
+Scenario: a row nothing is waiting on
+  Given patient P-0044 has no pending finding
+  And it has not been rejected
+  Then its state is Import clean
+
+Scenario: a row somebody threw out
+  Given Vamshi rejects patient P-0781
+  Then its state is Import rejected
+  And it stays rejected however its findings later settle
+```
+
+Pending and clean are read off the findings and are never stored. A stored
+"clean" would be wrong the moment 1.2.10's next run finds something new on a row
+that was clean a minute ago, and there would then be two answers to the same
+question. Rejection is the opposite: nothing can derive it, because it is a
+decision somebody made, so it is a column on the row.
+
+### 1.6.3 Expanding a row shows what is waiting on it
+
+```gherkin
+Scenario: a row is opened
+  Given patient P-0310 has findings from four rules
+  When Vamshi expands that row
+  Then the findings are shown grouped by the rule that made them
+  And each shows the column, the before and the after (1.2.3)
+```
+
+The same before and after the rules screen draws (1.2.3), and the same two
+presses per finding. What is different is only which findings are gathered
+together: one row's, rather than one rule's.
+
+### 1.6.4 Approve all on a row
+
+```gherkin
+Scenario: everything proposed on one row is taken
+  Given patient P-0310 has six pending findings, two of them from ambiguous rules
+  When Vamshi presses Approve all on that row
+  Then the four that propose a value are approved and written
+  And the two ambiguous ones are left pending
+  And the screen says two were left
+```
+
+It is exactly the row-level tick (1.2.4) pressed on every finding of that row,
+in one transaction (1.2.5), and it is not a new decision: the same result is
+reachable by opening each rule in turn and ticking that row. An ambiguous rule
+proposes nothing (1.1.12), so there is no tick on it to press and nothing for
+this press to apply — those are skipped, and the count of what was skipped is
+reported so the press never looks like it finished a row it did not.
+
+**A row carrying an ambiguous finding therefore cannot reach Import clean by
+this button.** Somebody has to answer or decline each one. That is the point of
+the screen, not a shortcoming of it.
+
+### 1.6.5 Decline all on a row
+
+```gherkin
+Scenario: everything proposed on one row is refused
+  Given patient P-0310 has six pending findings
+  When Vamshi presses Decline all on that row
+  Then all six are declined, ambiguous ones included
+  And each is declined forever (1.2.9)
+```
+
+Unlike the tick, the cross needs no proposal to press, so decline all covers
+every pending finding on the row. It declines rows, never rules: the ticked
+cross that parks a version (1.2.8) is a judgement about a rule and has no
+meaning applied to everything on one patient at once.
+
+### 1.6.6 A row can be rejected
+
+```gherkin
+Scenario: a row is not worth migrating
+  Given patient P-0781 is beyond repair
+  When Vamshi rejects it, with a reason
+  Then its state is Import rejected
+  And it is not offered for promotion (1.4)
+```
+
+Reversible, unlike an accepted change (1.2.11): rejecting a row writes nothing
+to the data, so taking it back costs nothing and loses nothing.
+
+### 1.6.7 A field can be corrected by hand
+
+```gherkin
+Scenario: a value no rule has an opinion about
+  Given patient P-0310 has a city no rule caught
+  When Vamshi edits that field and saves
+  Then the column is written
+  And the modification log records the change like any other (1.3)
+```
+
+The engine's one guarantee is that every change to legacy data says which rule,
+at which version, changed which column from what to what — the rule row *is* the
+log (1.3). A free-form edit has no rule behind it, so it would be the one change
+in the system with no answer to "why did this value change".
+
+So a hand edit is written as a finding, under a reserved rule id kept for
+exactly this, approved in the same transaction that writes it. The log keeps one
+shape, every change is in it, and a hand edit is legible as a hand edit because
+of the rule id it carries. This is the same move 1.1.12's typed value makes: the
+human's answer enters through the path a rule's answer takes, rather than beside
+it.
 
 ---
 
