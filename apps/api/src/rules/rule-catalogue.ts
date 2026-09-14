@@ -118,6 +118,8 @@ import { d01 } from './catalogue/d01';
 import { d02 } from './catalogue/d02';
 import { d03 } from './catalogue/d03';
 import { d04 } from './catalogue/d04';
+import { d05 } from './catalogue/d05';
+import { d06 } from './catalogue/d06';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -257,4 +259,6 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   d02,
   d03,
   d04,
+  d05,
+  d06,
 ];
