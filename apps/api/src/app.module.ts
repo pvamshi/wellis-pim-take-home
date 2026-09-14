@@ -12,6 +12,7 @@ import { RowsModule } from './rows/rows.module';
 import { RowsListModule } from './rows-list/rows-list.module';
 import { RowActionsModule } from './row-actions/row-actions.module';
 import { RowDetailModule } from './row-detail/row-detail.module';
+import { RowEditModule } from './row-edit/row-edit.module';
 import { RuleDetailModule } from './rule-detail/rule-detail.module';
 import { RulesListModule } from './rules-list/rules-list.module';
 import { RulesModule } from './rules/rules.module';
@@ -34,6 +35,7 @@ import { RulesModule } from './rules/rules.module';
     RowsListModule,
     RowDetailModule,
     RowActionsModule,
+    RowEditModule,
   ],
 })
 export class AppModule {}

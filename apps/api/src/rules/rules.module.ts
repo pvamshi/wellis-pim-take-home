@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LegacyModule } from '../legacy/legacy.module';
 import { RowsModule } from '../rows/rows.module';
 import { RowDetailService } from './row-detail.service';
+import { RowEditService } from './row-edit.service';
 import { RowListService } from './row-list.service';
 import { RuleApprovalsService } from './rule-approvals.service';
 import { ruleCatalogue } from './rule-catalogue';
@@ -113,6 +114,20 @@ import { Rule } from './rule.entity';
  * this module already imports. Its endpoint lives in `row-detail/`, a sibling
  * of `rows-list/` exactly as `rule-detail/` sits beside `rules-list/`, so this
  * is exported too.
+ *
+ * `RowEditService` is a hand edit (1.6.7): one column of one legacy row,
+ * written and recorded as an approved finding under the reserved rule id
+ * `HAND-EDIT`, in one transaction. It sits here for the same reason
+ * `RuleApprovalsService` does — it writes both a legacy data table and a rule
+ * table, the same two tables that service already owns — and needs no
+ * `forFeature` of its own: `rule` is registered here (it inserts the reserved
+ * rule's row the first time one is ever made), and the legacy data and rule
+ * tables come from `LegacyModule`. Its endpoint lives in `row-edit/`, a
+ * sibling of `row-actions/` rather than a fifth route there, because that
+ * controller's own docstring commits to the four row-wide presses that act on
+ * every finding on a row at once — an edit addresses one named column with a
+ * supplied value instead. Exported for the same reason every other endpoint's
+ * service here is.
  */
 @Module({
   imports: [LegacyModule, RowsModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
@@ -127,6 +142,7 @@ import { Rule } from './rule.entity';
     RuleRevisionsService,
     RowListService,
     RowDetailService,
+    RowEditService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -142,6 +158,7 @@ import { Rule } from './rule.entity';
     RuleRevisionsService,
     RowListService,
     RowDetailService,
+    RowEditService,
   ],
 })
 export class RulesModule {}
