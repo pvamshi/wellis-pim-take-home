@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   ActionIcon,
   Button,
@@ -64,7 +65,7 @@ export interface RuleRowsTableProps {
  * or wholly removed, which is what marking it all changed says.
  *
  * An ambiguous rule proposes nothing at all (1.1.12), so it has a before and no
- * after; the description in the next column is what the human reads instead
+ * after; what it found is written across the full width below the row instead
  * (1.2.3).
  */
 function comparison(
@@ -199,17 +200,45 @@ function AmbiguousRowActions({ row, actions }: { row: RuleDetailRow; actions: Ru
  * endpoint returns every row by design, and a rule with 340 of them must not
  * push the rest of the accordion off the screen.
  */
+/**
+ * The full-width cell under an ambiguous row. Pulled up against the row above
+ * by having no top border of its own, so the two read as one entry rather than
+ * as two rows that happen to be adjacent.
+ */
+const FOUND_CELL: CSSProperties = {
+  borderTop: 'none',
+  paddingTop: 0,
+  color: 'var(--mantine-color-dimmed)',
+};
+
 export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRowsTableProps) {
+  // Source, legacy id, column and before, plus after on a rule that proposes
+  // one and the decision column when the section is actionable. The full-width
+  // cell below each ambiguous row spans exactly these.
+  const columnCount = 4 + (ambiguous ? 0 : 1) + (actions === undefined ? 0 : 1);
+
   return (
     <Table.ScrollContainer minWidth={640} mah={420} type="native">
-      <Table striped highlightOnHover stickyHeader>
+      {/*
+        Not striped when a rule is ambiguous: an entry is two rows there, and
+        the zebra would shade the row and the finding below it differently —
+        making one entry look like two, which is the opposite of what the second
+        row is for.
+      */}
+      <Table striped={!ambiguous} highlightOnHover stickyHeader>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Source</Table.Th>
             <Table.Th>Legacy id</Table.Th>
             <Table.Th>Column</Table.Th>
             <Table.Th>Before</Table.Th>
-            <Table.Th>{ambiguous ? 'What the rule found' : 'After'}</Table.Th>
+            {/*
+              An ambiguous rule has no after value, and what it found goes in a
+              full-width row of its own below each row rather than in a column
+              here — a column would take its width from `Before`, which is the
+              one thing on the row that has to be readable.
+            */}
+            {!ambiguous && <Table.Th>After</Table.Th>}
             {actions !== undefined && (
               <Table.Th w={ambiguous ? 280 : 100}>
                 {ambiguous ? 'What should it be?' : 'Decision'}
@@ -222,66 +251,73 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
             const { before, after } = comparison(row, ambiguous);
 
             return (
-              <Table.Tr key={keyOf(row)}>
-                <Table.Td>
-                  <Text size="sm">{row.table}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Code>{row.legacyId}</Code>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{row.column}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <DiffValue pieces={before} tone={ambiguous ? 'plain' : 'removed'} />
-                </Table.Td>
-                <Table.Td>
-                  {ambiguous ? (
-                    <Text size="sm">{description}</Text>
-                  ) : (
-                    <DiffValue pieces={after} tone="added" />
-                  )}
-                </Table.Td>
-                {actions !== undefined && ambiguous && (
+              <Fragment key={keyOf(row)}>
+                <Table.Tr>
                   <Table.Td>
-                    <AmbiguousRowActions row={row} actions={actions} />
+                    <Text size="sm">{row.table}</Text>
                   </Table.Td>
-                )}
-                {actions !== undefined && !ambiguous && (
                   <Table.Td>
-                    <Group gap="xs" wrap="nowrap">
-                      {/*
+                    <Code>{row.legacyId}</Code>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{row.column}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <DiffValue pieces={before} tone={ambiguous ? 'plain' : 'removed'} />
+                  </Table.Td>
+                  {!ambiguous && (
+                    <Table.Td>
+                      <DiffValue pieces={after} tone="added" />
+                    </Table.Td>
+                  )}
+                  {actions !== undefined && ambiguous && (
+                    <Table.Td>
+                      <AmbiguousRowActions row={row} actions={actions} />
+                    </Table.Td>
+                  )}
+                  {actions !== undefined && !ambiguous && (
+                    <Table.Td>
+                      <Group gap="xs" wrap="nowrap">
+                        {/*
                       Glyphs rather than an icon component: no icon package is
                       installed and tech-stack §4.1 names none, so one is not
                       introduced for two buttons. The aria-label is what a
                       screen reader reads, since the glyph is decoration.
                     */}
-                      <Tooltip label="Approve this row" withArrow>
-                        <ActionIcon
-                          variant="light"
-                          color="green"
-                          aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
-                          disabled={actions.busy}
-                          onClick={() => actions.onApprove(row)}
-                        >
-                          ✓
-                        </ActionIcon>
-                      </Tooltip>
-                      <Tooltip label="Decline this row" withArrow>
-                        <ActionIcon
-                          variant="light"
-                          color="red"
-                          aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
-                          disabled={actions.busy}
-                          onClick={() => actions.onDecline(row)}
-                        >
-                          ✕
-                        </ActionIcon>
-                      </Tooltip>
-                    </Group>
-                  </Table.Td>
+                        <Tooltip label="Approve this row" withArrow>
+                          <ActionIcon
+                            variant="light"
+                            color="green"
+                            aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
+                            disabled={actions.busy}
+                            onClick={() => actions.onApprove(row)}
+                          >
+                            ✓
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Decline this row" withArrow>
+                          <ActionIcon
+                            variant="light"
+                            color="red"
+                            aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
+                            disabled={actions.busy}
+                            onClick={() => actions.onDecline(row)}
+                          >
+                            ✕
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </Table.Td>
+                  )}
+                </Table.Tr>
+                {ambiguous && (
+                  <Table.Tr>
+                    <Table.Td colSpan={columnCount} style={FOUND_CELL}>
+                      <Text size="sm">{description}</Text>
+                    </Table.Td>
+                  </Table.Tr>
                 )}
-              </Table.Tr>
+              </Fragment>
             );
           })}
         </Table.Tbody>
