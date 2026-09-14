@@ -14,6 +14,7 @@ import {
 } from '@mantine/core';
 import { ApiError, applyRules, applyRulesUrl, getRules, rulesUrl } from '../api/client';
 import type { ApplyRulesTotals, RuleListEntry } from '../api/types';
+import { AppNav } from '../components/AppNav';
 import { RuleDetailPanel } from '../components/RuleDetailPanel';
 
 type RequestState =
@@ -155,6 +156,8 @@ export function RulesPage() {
   return (
     <Container size="md" py="xl">
       <Stack gap="lg">
+        <AppNav />
+
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Stack gap={4}>
             <Title order={1}>Rules</Title>

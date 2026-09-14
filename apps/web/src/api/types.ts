@@ -249,3 +249,156 @@ export interface ApplyRulesReport {
   readonly rules: ApplyRulesRuleLine[];
   readonly totals: ApplyRulesTotals;
 }
+
+/** The three states a row can be in (1.6.1, 1.6.2). */
+export type RowState = 'pending' | 'clean' | 'rejected';
+
+/**
+ * One line of the rows screen (1.6.1): a legacy row and the state it is in.
+ *
+ * A restatement of the backend's `RowListEntry`
+ * (`apps/api/src/rules/row-list.service.ts`), exactly as `RuleListEntry`
+ * above restates the rules screen's own line.
+ */
+export interface RowListEntry {
+  readonly table: LegacySourceTable;
+  /** Theirs, and not unique (1.0.3) — this line names a row, not a person. */
+  readonly legacyId: string;
+  readonly state: RowState;
+}
+
+/**
+ * The backend's `GET /rows` response: a page of rows, plus the count the
+ * current filter matches (1.6.1) — what `Pagination` needs to compute how
+ * many pages there are.
+ */
+export interface RowsListResponse {
+  readonly rows: RowListEntry[];
+  readonly total: number;
+}
+
+/**
+ * One physical legacy row's own column values (1.6.3), keyed by the database
+ * column name — `full_name`, not `fullName` — matching a finding's own
+ * `column` field.
+ *
+ * A restatement of the backend's `LegacyRowValues`
+ * (`apps/api/src/rules/row-detail.service.ts`).
+ */
+export type LegacyRowValues = Record<string, string | null>;
+
+/**
+ * One finding on the rows screen (1.6.3) — the same `column`, `previousValue`
+ * and optional `nextValue` `RuleDetailRow` carries, minus `table` and
+ * `legacyId`, which are this whole response's fixed context (the URL).
+ *
+ * A restatement of the backend's `RowDetailFinding`.
+ */
+export interface RowDetailFinding {
+  readonly column: string;
+  readonly previousValue: string | null;
+  /** Absent, not null, exactly when the rule behind it is ambiguous (1.1.12). */
+  readonly nextValue?: string | null;
+}
+
+/**
+ * One rule's findings against one row (1.6.3), bucketed into what is still
+ * waiting and what is already settled.
+ *
+ * A restatement of the backend's `RowDetailRuleGroup`. `settled` merges
+ * approved and declined into one bucket, deliberately: a declined finding is
+ * exactly as settled as an approved one on this screen, unlike the rules
+ * screen's own "Approved" section.
+ */
+export interface RowDetailRuleGroup {
+  readonly ruleId: string;
+  readonly ruleName: string;
+  /** For an ambiguous rule, what the human reads instead of a value (1.1.12). */
+  readonly description: string;
+  readonly ambiguous: boolean;
+  /** The one version every finding in this group belongs to. */
+  readonly version: number;
+  /** Findings still awaiting a decision (1.6.3). Empty when there are none. */
+  readonly pending: RowDetailFinding[];
+  /** Findings already approved or declined. Empty when there are none. */
+  readonly settled: RowDetailFinding[];
+}
+
+/**
+ * Everything waiting on one row (1.6.3): its own values, and its findings
+ * grouped by the rule that made them.
+ *
+ * A restatement of the backend's `RowDetail`, the `GET /rows/:table/:legacyId`
+ * response.
+ */
+export interface RowDetailResponse {
+  readonly table: LegacySourceTable;
+  readonly legacyId: string;
+  /**
+   * Every physical legacy row sharing this legacy id (1.0.3) — a legacy id
+   * names a row without identifying one.
+   */
+  readonly dataRows: LegacyRowValues[];
+  /** This row's findings, grouped by the rule that made them (1.6.3). */
+  readonly findings: RowDetailRuleGroup[];
+}
+
+/**
+ * What one press of Approve all on a row did (1.6.4). Informational — the
+ * screen always re-reads the detail and the list after a press.
+ */
+export interface RowApproveAllReport {
+  readonly table: string;
+  readonly legacyId: string;
+  /** Rule rows moved from pending to approved — the ones that proposed a value. */
+  readonly approved: number;
+  /** Legacy data rows written. Can exceed `approved` (1.0.3). */
+  readonly updated: number;
+  /**
+   * Pending findings left pending because the rule behind them is ambiguous
+   * and proposed no value (1.1.12) — reported so the press never looks like
+   * it finished a row it did not.
+   */
+  readonly skipped: number;
+}
+
+/** What one press of Decline all on a row did (1.6.5). Informational. */
+export interface RowDeclineAllReport {
+  readonly table: string;
+  readonly legacyId: string;
+  /** Every pending rule row this press moved to declined, ambiguous included. */
+  readonly declined: number;
+  /**
+   * The reason stored on every one of them, or null when none was given. Null
+   * too when nothing was declined, because then nothing was stored.
+   */
+  readonly reason: string | null;
+}
+
+/** What a reject or an un-reject press left the row as (1.6.6). Informational. */
+export interface RowRejectionReport {
+  readonly table: LegacySourceTable;
+  readonly legacyId: string;
+  readonly rejected: boolean;
+  /** The reason on record, or null. Always null after `unreject` — the row is gone. */
+  readonly reason: string | null;
+}
+
+/**
+ * What one hand edit did (1.6.7): the address, and both sides of the change.
+ * Informational.
+ */
+export interface RowEditReport {
+  readonly table: LegacySourceTable;
+  readonly legacyId: string;
+  /** The database column written, e.g. `full_name`. */
+  readonly column: string;
+  /** What the column held before this edit. Null when it held nothing. */
+  readonly previousValue: string | null;
+  /** What was written. Null clears the column (1.2.13's "a blank box is an answer"). */
+  readonly nextValue: string | null;
+  /** Always the reserved hand-edit rule id — legible as a hand edit because of it. */
+  readonly ruleId: string;
+  /** The finding's own version, unique per `(legacyId, ruleId, column)`. */
+  readonly version: number;
+}

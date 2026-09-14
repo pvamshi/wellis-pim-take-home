@@ -2,8 +2,16 @@ import type {
   ApplyRulesReport,
   ApproveReport,
   HealthResponse,
+  LegacySourceTable,
   ReviseFromRowReport,
+  RowApproveAllReport,
+  RowDeclineAllReport,
   RowDeclineReport,
+  RowDetailResponse,
+  RowRejectionReport,
+  RowEditReport,
+  RowState,
+  RowsListResponse,
   RuleDeclineReport,
   RuleDetailResponse,
   RuleRowAddress,
@@ -304,5 +312,143 @@ export async function reviseFromRow(
   return await requestJson<ReviseFromRowReport>(ruleUrl(ruleId, '/rows/revise'), {
     method: 'POST',
     body: { ...row, ...reasonField(reason) },
+  });
+}
+
+/** The rows-list URL (1.6.1). Built here for the same reason as `rulesUrl`. */
+export const rowsUrl = `${apiBaseUrl}/rows`;
+
+/**
+ * The URL of one row and of the presses against it (1.6.3-1.6.7). Table and
+ * legacy id are data — they come from the list, not from a literal — so both
+ * are encoded rather than concatenated raw, the same reason `ruleUrl` encodes
+ * a rule id.
+ */
+export function rowUrl(table: LegacySourceTable, legacyId: string, path = ''): string {
+  return `${rowsUrl}/${encodeURIComponent(table)}/${encodeURIComponent(legacyId)}${path}`;
+}
+
+/** What the rows screen's list may be narrowed to (1.6.1). Both narrowings are optional. */
+export interface RowsListFilter {
+  readonly table?: LegacySourceTable;
+  readonly state?: RowState;
+  /** 1-based. Defaults to the first page. */
+  readonly page?: number;
+}
+
+/**
+ * The rows screen's list (1.6.1), narrowed by whatever filter is given.
+ *
+ * `table` and `state` are left out of the query string entirely when unset,
+ * matching the backend's own "absent means no narrowing" reading
+ * (`rows-list.controller.ts`'s `readTable`/`readState`) — an "All" filter is
+ * silence, not the literal string `"all"`, which the backend would reject.
+ */
+export async function getRows(
+  filter: RowsListFilter = {},
+  signal?: AbortSignal,
+): Promise<RowsListResponse> {
+  const params = new URLSearchParams();
+  if (filter.table !== undefined) params.set('table', filter.table);
+  if (filter.state !== undefined) params.set('state', filter.state);
+  if (filter.page !== undefined) params.set('page', String(filter.page));
+
+  const query = params.toString();
+  return await requestJson<RowsListResponse>(query === '' ? rowsUrl : `${rowsUrl}?${query}`, {
+    signal,
+  });
+}
+
+/**
+ * One expanded row: its own values, and its findings grouped by rule (1.6.3).
+ *
+ * Read once per expand and re-read after every press, the same rule
+ * `getRuleDetail` follows: the screen's truth is what the backend says it is.
+ */
+export async function getRowDetail(
+  table: LegacySourceTable,
+  legacyId: string,
+  signal?: AbortSignal,
+): Promise<RowDetailResponse> {
+  return await requestJson<RowDetailResponse>(rowUrl(table, legacyId), { signal });
+}
+
+/**
+ * Approve all on a row (1.6.4): every pending finding that proposes a value is
+ * approved and written; ambiguous ones are left pending and counted into the
+ * report's `skipped`.
+ *
+ * No body: which findings move is decided by what is pending on the row,
+ * never by this caller.
+ */
+export async function approveAllOnRow(
+  table: LegacySourceTable,
+  legacyId: string,
+): Promise<RowApproveAllReport> {
+  return await requestJson<RowApproveAllReport>(rowUrl(table, legacyId, '/approve'), {
+    method: 'POST',
+  });
+}
+
+/**
+ * Decline all on a row (1.6.5): every pending finding, ambiguous ones
+ * included, declined forever (1.2.9) with the reason given, if any.
+ */
+export async function declineAllOnRow(
+  table: LegacySourceTable,
+  legacyId: string,
+  reason?: string,
+): Promise<RowDeclineAllReport> {
+  return await requestJson<RowDeclineAllReport>(rowUrl(table, legacyId, '/decline'), {
+    method: 'POST',
+    body: reasonField(reason),
+  });
+}
+
+/**
+ * Reject a row (1.6.6): not offered for promotion, with the reason given, if
+ * any. Reversible — it writes nothing to the legacy data.
+ */
+export async function rejectRow(
+  table: LegacySourceTable,
+  legacyId: string,
+  reason?: string,
+): Promise<RowRejectionReport> {
+  return await requestJson<RowRejectionReport>(rowUrl(table, legacyId, '/reject'), {
+    method: 'POST',
+    body: reasonField(reason),
+  });
+}
+
+/**
+ * Un-reject a row (1.6.6). No body: there is nowhere on `row_rejection` for an
+ * "unreject reason" to be kept once the row is deleted.
+ */
+export async function unrejectRow(
+  table: LegacySourceTable,
+  legacyId: string,
+): Promise<RowRejectionReport> {
+  return await requestJson<RowRejectionReport>(rowUrl(table, legacyId, '/unreject'), {
+    method: 'POST',
+  });
+}
+
+/**
+ * A hand edit (1.6.7): one column of one legacy row, written and recorded as
+ * an approved finding under the reserved hand-edit rule id.
+ *
+ * `value` is `null` to clear the column (1.2.13's "a blank box is an
+ * answer") — distinct from an empty string, which the backend treats as a
+ * deliberate "set it to empty" rather than "clear it".
+ */
+export async function editRow(
+  table: LegacySourceTable,
+  legacyId: string,
+  column: string,
+  value: string | null,
+): Promise<RowEditReport> {
+  return await requestJson<RowEditReport>(rowUrl(table, legacyId, '/edit'), {
+    method: 'POST',
+    body: { column, value },
   });
 }
