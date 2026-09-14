@@ -1,5 +1,6 @@
 import { ActionIcon, Code, Group, Table, Text, Tooltip } from '@mantine/core';
 import type { RuleDetailRow } from '../api/types';
+import { DiffValue, diffValues, type DiffPiece } from './ValueDiff';
 
 /**
  * The tick and the cross for one row (1.2.4, 1.2.7), or nothing.
@@ -26,17 +27,39 @@ export interface RuleRowsTableProps {
   readonly actions?: RuleRowActions;
 }
 
-/** A value the column did not hold, or does not propose. Dimmed, never blank. */
-function Value({ value }: { value: string | null }) {
-  if (value === null) {
-    return (
-      <Text size="sm" c="dimmed" fs="italic">
-        (none)
-      </Text>
-    );
+/**
+ * The two sides of one row, cut into the runs that changed and the runs that
+ * did not.
+ *
+ * Only a row with a value on both sides is compared. Everything else has no
+ * counterpart to compare against — a column being filled in for the first time,
+ * or a rule proposing that a column be cleared — so the value is wholly added
+ * or wholly removed, which is what marking it all changed says.
+ *
+ * An ambiguous rule proposes nothing at all (1.1.12), so it has a before and no
+ * after; the description in the next column is what the human reads instead
+ * (1.2.3).
+ */
+function comparison(
+  row: RuleDetailRow,
+  ambiguous: boolean,
+): { before: DiffPiece[] | null; after: DiffPiece[] | null } {
+  const previous = row.previousValue;
+
+  if (ambiguous) {
+    return { before: previous === null ? null : [{ text: previous, changed: false }], after: null };
   }
 
-  return <Code>{value}</Code>;
+  const next = row.nextValue ?? null;
+
+  if (previous !== null && next !== null) {
+    return diffValues(previous, next);
+  }
+
+  return {
+    before: previous === null ? null : [{ text: previous, changed: true }],
+    after: next === null ? null : [{ text: next, changed: true }],
+  };
 }
 
 /**
@@ -76,64 +99,79 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {rows.map((row) => (
-            <Table.Tr key={`${row.table}:${row.legacyId}:${row.column}`}>
-              <Table.Td>
-                <Text size="sm">{row.table}</Text>
-              </Table.Td>
-              <Table.Td>
-                <Code>{row.legacyId}</Code>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm">{row.column}</Text>
-              </Table.Td>
-              <Table.Td>
-                <Value value={row.previousValue} />
-              </Table.Td>
-              <Table.Td>
-                {ambiguous ? (
-                  <Text size="sm">{description}</Text>
-                ) : (
-                  <Value value={row.nextValue ?? null} />
-                )}
-              </Table.Td>
-              {actions !== undefined && (
+          {rows.map((row) => {
+            const { before, after } = comparison(row, ambiguous);
+
+            return (
+              <Table.Tr key={`${row.table}:${row.legacyId}:${row.column}`}>
                 <Table.Td>
-                  <Group gap="xs" wrap="nowrap">
-                    {/*
+                  <Text size="sm">{row.table}</Text>
+                </Table.Td>
+                <Table.Td>
+                  <Code>{row.legacyId}</Code>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm">{row.column}</Text>
+                </Table.Td>
+                <Table.Td>
+                  <DiffValue pieces={before} tone={ambiguous ? 'plain' : 'removed'} />
+                </Table.Td>
+                <Table.Td>
+                  {ambiguous ? (
+                    <Text size="sm">{description}</Text>
+                  ) : (
+                    <DiffValue pieces={after} tone="added" />
+                  )}
+                </Table.Td>
+                {actions !== undefined && (
+                  <Table.Td>
+                    <Group gap="xs" wrap="nowrap">
+                      {/*
                       Glyphs rather than an icon component: no icon package is
                       installed and tech-stack §4.1 names none, so one is not
                       introduced for two buttons. The aria-label is what a
                       screen reader reads, since the glyph is decoration.
                     */}
-                    <Tooltip label="Approve this row" withArrow>
-                      <ActionIcon
-                        variant="light"
-                        color="green"
-                        aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
-                        disabled={actions.busy}
-                        onClick={() => actions.onApprove(row)}
-                      >
-                        ✓
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label="Decline this row" withArrow>
-                      <ActionIcon
-                        variant="light"
-                        color="red"
-                        aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
-                        disabled={actions.busy}
-                        onClick={() => actions.onDecline(row)}
-                      >
-                        ✕
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </Table.Td>
-              )}
-            </Table.Tr>
-          ))}
+                      <Tooltip label="Approve this row" withArrow>
+                        <ActionIcon
+                          variant="light"
+                          color="green"
+                          aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
+                          disabled={actions.busy}
+                          onClick={() => actions.onApprove(row)}
+                        >
+                          ✓
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Decline this row" withArrow>
+                        <ActionIcon
+                          variant="light"
+                          color="red"
+                          aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
+                          disabled={actions.busy}
+                          onClick={() => actions.onDecline(row)}
+                        >
+                          ✕
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </Table.Td>
+                )}
+              </Table.Tr>
+            );
+          })}
         </Table.Tbody>
+        {/*
+          The glyphs need saying once. Without this a reader meets `·` in a red
+          highlight and has to guess whether the old value contained a dot or a
+          space — which would put the legend's absence in the way of the very
+          thing it is drawn to show.
+        */}
+        <Table.Caption>
+          <Text size="xs" c="dimmed">
+            · space → tab ↵ newline ⟨U+…⟩ any other invisible character
+          </Text>
+        </Table.Caption>
       </Table>
     </Table.ScrollContainer>
   );
