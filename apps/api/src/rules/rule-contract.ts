@@ -60,6 +60,37 @@ export interface RuleResponse {
 
   /** Every change found, in one batch (1.1.14). Empty when nothing matched. */
   updates: RuleUpdate[];
+
+  /**
+   * Duplicate links found, in one batch (1.1.14). Absent or empty for every
+   * rule that is not about duplicates — only the rules in the Duplicates
+   * section of the catalogue set this.
+   */
+  duplicates?: DuplicateFinding[];
+}
+
+/**
+ * One duplicate link a rule found: `duplicateLegacyId` and
+ * `canonicalLegacyId` are the same person, twice, both from the same legacy
+ * source.
+ *
+ * Deliberately not `RuleUpdate`-shaped (1.1.13). The Duplicates section of the
+ * catalogue says outright that these rules "write to the duplicates table,
+ * not to a column" — a link changes no column of either row, so it carries
+ * the two ids the link is between rather than a column and a prev/next pair.
+ * This is `duplicate.entity.ts`'s row, minus the `ruleId`/`version` that
+ * whatever persists a response (1.1.3) — not the rule — is what attaches, the
+ * same split `RuleUpdate` already draws.
+ */
+export interface DuplicateFinding {
+  /** Which legacy source both ids come from. */
+  table: LegacySourceTable;
+
+  /** X — the id that duplicates. */
+  duplicateLegacyId: string;
+
+  /** Y — the one that survives. */
+  canonicalLegacyId: string;
 }
 
 /**
