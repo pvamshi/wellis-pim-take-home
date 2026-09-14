@@ -219,8 +219,7 @@ const TONES: Record<Tone, { field: CSSProperties; changed: CSSProperties }> = {
   removed: {
     field: {
       background: 'light-dark(var(--mantine-color-red-0), rgba(224, 49, 49, 0.10))',
-      borderInlineStart:
-        '3px solid light-dark(var(--mantine-color-red-4), rgba(224, 49, 49, 0.55))',
+      border: '1px solid light-dark(var(--mantine-color-red-1), rgba(224, 49, 49, 0.25))',
     },
     changed: {
       background: 'light-dark(var(--mantine-color-red-2), rgba(224, 49, 49, 0.42))',
@@ -229,8 +228,7 @@ const TONES: Record<Tone, { field: CSSProperties; changed: CSSProperties }> = {
   added: {
     field: {
       background: 'light-dark(var(--mantine-color-green-0), rgba(43, 138, 62, 0.10))',
-      borderInlineStart:
-        '3px solid light-dark(var(--mantine-color-green-4), rgba(43, 138, 62, 0.55))',
+      border: '1px solid light-dark(var(--mantine-color-green-1), rgba(43, 138, 62, 0.25))',
     },
     changed: {
       background: 'light-dark(var(--mantine-color-green-2), rgba(43, 138, 62, 0.42))',
@@ -243,7 +241,7 @@ const TONES: Record<Tone, { field: CSSProperties; changed: CSSProperties }> = {
   plain: {
     field: {
       background: 'var(--mantine-color-default-hover)',
-      borderInlineStart: '3px solid var(--mantine-color-default-border)',
+      border: '1px solid var(--mantine-color-default-border)',
     },
     changed: {},
   },
