@@ -88,6 +88,12 @@ import { i22 } from './catalogue/i22';
 import { i23 } from './catalogue/i23';
 import { i24 } from './catalogue/i24';
 import { i25 } from './catalogue/i25';
+import { i26 } from './catalogue/i26';
+import { i27 } from './catalogue/i27';
+import { i28 } from './catalogue/i28';
+import { i29 } from './catalogue/i29';
+import { i30 } from './catalogue/i30';
+import { i31 } from './catalogue/i31';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -197,4 +203,10 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   i23,
   i24,
   i25,
+  i26,
+  i27,
+  i28,
+  i29,
+  i30,
+  i31,
 ];
