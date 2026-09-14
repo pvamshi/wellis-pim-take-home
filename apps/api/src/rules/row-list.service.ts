@@ -32,29 +32,54 @@ export interface RowListEntry {
   readonly state: RowState;
 }
 
-/** What the screen may narrow the list to (1.6.1). Both narrowings are optional. */
+/** What the screen may narrow the list to (1.6.1), and which slice it wants. */
 export interface RowListFilter {
   readonly table?: LegacySourceTable;
   readonly state?: RowState;
+  /** How many rows to skip. Defaults to none. */
+  readonly offset?: number;
+  /** How many to return. Defaults to `ROWS_DEFAULT_LIMIT`, capped at `ROWS_MAX_LIMIT`. */
+  readonly limit?: number;
 }
 
 /**
- * The rows the filter matches, and how many that is.
+ * One slice of the rows the filter matches, and how many there are in all.
  *
- * Every one of them, not a page. The screen virtualises the list — it draws the
- * few rows on screen and no more — so paging here would only put a second,
- * coarser limit in front of one that is already doing the job, and would put it
- * between the user and rows they can reach by scrolling. It is the same
- * reasoning the rule detail endpoint already follows, which returns all 340 rows
- * of a rule and lets the screen scroll them.
+ * A slice rather than everything, because the screen fetches as it scrolls: at
+ * 2466 patients the whole set is half a megabyte of JSON that the reader has
+ * asked to see twenty rows of.
  *
- * `total` is the count this filter matches, which is what a heading says and
- * what tells the reader whether a filter caught anything.
+ * What a slice does **not** save is the work of finding it. The state of a row
+ * is derived from its findings (1.6.2), so the whole filtered set has to be
+ * built before any window of it can be cut — the slice is the last step, not
+ * the first. That is deliberate rather than overlooked: the unfiltered endpoint
+ * answers in well under a tenth of a second on the real export, and deriving
+ * state in SQL across a union of three sources, with an order stable enough to
+ * page against, would be a great deal of machinery bought with no measured
+ * gain. What the slice saves is the payload and the parse, which is what grows
+ * with the dataset.
+ *
+ * `total` is the count this filter matches, not the length of this slice: it is
+ * what the heading says and what tells the screen whether there is more to
+ * fetch.
  */
 export interface RowListResult {
   readonly rows: RowListEntry[];
   readonly total: number;
 }
+
+/** Rows returned when the caller names no limit. */
+export const ROWS_DEFAULT_LIMIT = 100;
+
+/**
+ * The most rows one call will return, however large a limit is asked for.
+ *
+ * A caller asking for everything is the shape this endpoint exists to avoid, so
+ * the cap is the endpoint's own and not a suggestion — a limit past it is
+ * clamped, not rejected, because asking for more than there is has never been
+ * an error here.
+ */
+export const ROWS_MAX_LIMIT = 500;
 
 /** The three tables a legacy row can come from, and how each is read. */
 interface RowSource {
@@ -173,7 +198,13 @@ export class RowListService {
         left.table.localeCompare(right.table) || left.legacyId.localeCompare(right.legacyId),
     );
 
-    return { rows: filtered, total: filtered.length };
+    const offset = filter.offset ?? 0;
+    const limit = Math.min(filter.limit ?? ROWS_DEFAULT_LIMIT, ROWS_MAX_LIMIT);
+
+    // An offset past the end is not a fault: it answers no rows and the true
+    // total, the same "an empty result is a state, not a failure" line the rest
+    // of this screen draws.
+    return { rows: filtered.slice(offset, offset + limit), total: filtered.length };
   }
 
   /** Every distinct legacy id the source's data table carries (1.0.3: not unique). */

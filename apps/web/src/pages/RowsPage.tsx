@@ -47,6 +47,21 @@ const ESTIMATED_ROW_HEIGHT = 60;
  */
 const LIST_HEIGHT = 640;
 
+/**
+ * How many rows one fetch asks for.
+ *
+ * Several screenfuls, so scrolling at a normal speed never catches up with the
+ * fetching. Small enough that the first paint is not waiting on the whole
+ * export: a fetch of everything is half a megabyte of JSON to show twenty rows.
+ */
+const FETCH_SIZE = 100;
+
+/**
+ * How close to the end of what is loaded the reader gets before the next fetch
+ * starts. Roughly a screenful, so the rows arrive before they are looked at.
+ */
+const PREFETCH_WITHIN = 20;
+
 /** A stable empty array, so the virtualiser is not rebuilt on every render. */
 const EMPTY_ROWS: RowListEntry[] = [];
 
@@ -93,20 +108,32 @@ export function RowsPage() {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [attempt, setAttempt] = useState(0);
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
+  /**
+   * True while a further window is in flight.
+   *
+   * A ref and not state, because it is read inside the scroll effect to decide
+   * whether to start another fetch: as state it would be a render behind, and
+   * a fast scroll would fire the same fetch several times before the first
+   * render carrying `true` arrived.
+   */
+  const fetchingMore = useRef(false);
 
+  const narrowing = {
+    table: tableFilter === 'all' ? undefined : tableFilter,
+    state: stateFilter === 'all' ? undefined : stateFilter,
+  };
+
+  // The first window. Runs again whenever a filter changes or the list is
+  // re-read after a press, and always starts from the top — a different filter
+  // is a different list, and nothing of the old one is kept.
   useEffect(() => {
     const controller = new AbortController();
+    fetchingMore.current = false;
 
     // Every rejection is handled here, so nothing escapes as an unhandled
     // promise rejection: a backend that is not running renders the Alert
     // below.
-    getRows(
-      {
-        table: tableFilter === 'all' ? undefined : tableFilter,
-        state: stateFilter === 'all' ? undefined : stateFilter,
-      },
-      controller.signal,
-    )
+    getRows({ ...narrowing, offset: 0, limit: FETCH_SIZE }, controller.signal)
       .then((response) => {
         if (controller.signal.aborted) return;
         setState({ kind: 'loaded', rows: response.rows, total: response.total });
@@ -122,6 +149,35 @@ export function RowsPage() {
 
     return () => controller.abort();
   }, [tableFilter, stateFilter, attempt]);
+
+  /**
+   * The next window, appended to what is already loaded.
+   *
+   * Appending rather than replacing is what makes the scrollbar honest: the
+   * virtualiser sizes itself from how many rows it has been given, so a fetch
+   * that swapped one window for another would make the list jump to a different
+   * length under a reader who was only scrolling.
+   *
+   * A failed fetch here is deliberately quiet — it leaves what is loaded on
+   * screen and lets the next scroll try again, rather than replacing a working
+   * list with an error over a window nobody explicitly asked for.
+   */
+  function loadMore(loaded: number) {
+    fetchingMore.current = true;
+
+    getRows({ ...narrowing, offset: loaded, limit: FETCH_SIZE })
+      .then((response) => {
+        setState((previous) =>
+          previous.kind === 'loaded'
+            ? { ...previous, rows: [...previous.rows, ...response.rows], total: response.total }
+            : previous,
+        );
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        fetchingMore.current = false;
+      });
+  }
 
   function retry() {
     setState({ kind: 'loading' });
@@ -175,6 +231,21 @@ export function RowsPage() {
   const above = visible.length > 0 ? visible[0].start : 0;
   const below =
     visible.length > 0 ? virtualizer.getTotalSize() - visible[visible.length - 1].end : 0;
+
+  // Fetch the next window when the reader gets within a screenful of the end of
+  // what is loaded. Driven by what the virtualiser is drawing rather than by a
+  // scroll handler, because that is already the answer to "how far down is
+  // this reader" and a scroll listener would be a second, coarser one.
+  const total = state.kind === 'loaded' ? state.total : 0;
+  const lastVisible = visible.length > 0 ? visible[visible.length - 1].index : 0;
+
+  useEffect(() => {
+    if (fetchingMore.current) return;
+    if (rows.length === 0 || rows.length >= total) return;
+    if (lastVisible < rows.length - 1 - PREFETCH_WITHIN) return;
+
+    loadMore(rows.length);
+  }, [lastVisible, rows.length, total]);
 
   return (
     <Container size="md" py="xl">
@@ -284,6 +355,17 @@ export function RowsPage() {
               {below > 0 && <div style={{ height: below }} />}
             </Accordion>
           </div>
+        )}
+
+        {state.kind === 'loaded' && state.rows.length > 0 && (
+          // What is on screen is a window of a longer list, and the reader is
+          // owed the size of the list rather than the size of the window —
+          // "100 of 2466" is a different screen from "100".
+          <Text size="xs" c="dimmed" ta="center">
+            {state.rows.length === state.total
+              ? `${state.total} matching`
+              : `${state.rows.length} of ${state.total} matching loaded — scroll for more`}
+          </Text>
         )}
 
         {state.kind === 'failed' && (

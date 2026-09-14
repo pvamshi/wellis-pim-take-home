@@ -241,7 +241,7 @@ describe('the rows list', () => {
     ]);
   });
 
-  it('returns every row the filter matches, in one answer, in a stable order', async () => {
+  it('answers one window at a time, with the total of the whole filter', async () => {
     const ids = Array.from(
       { length: 120 },
       (_, index) => `P-MANY-${String(index).padStart(4, '0')}`,
@@ -256,17 +256,55 @@ describe('the rows list', () => {
       );
     }
 
+    const sorted = [...ids].sort();
+    const first = await loadRows({ table: 'patient', limit: '50' });
+    const second = await loadRows({ table: 'patient', offset: '50', limit: '50' });
+    const third = await loadRows({ table: 'patient', offset: '100', limit: '50' });
+
+    // total is the count the filter matches, not the length of the window —
+    // it is what tells the screen there is more to fetch.
+    expect([first.body.total, second.body.total, third.body.total]).toEqual([120, 120, 120]);
+    expect(first.body.rows).toHaveLength(50);
+    expect(second.body.rows).toHaveLength(50);
+    expect(third.body.rows).toHaveLength(20);
+
+    // The windows tile the list: every id once, in order, with no gap and no
+    // overlap, which is what lets the screen append each one to the last.
+    const walked = [...first.body.rows, ...second.body.rows, ...third.body.rows];
+    expect(walked.map((row) => row.legacyId)).toEqual(sorted);
+  });
+
+  it('defaults to a first window when no offset or limit is named', async () => {
+    await seedPatient('P-DEFAULT');
+
     const { body } = await loadRows({ table: 'patient' });
 
-    // Not paged: the screen virtualises, so the endpoint hands over the whole
-    // filtered set and lets the screen decide how much of it to draw. A page
-    // size here would be a limit nobody could scroll past.
-    expect(body.total).toBe(120);
-    expect(body.rows).toHaveLength(120);
+    expect(body).toEqual({
+      rows: [{ table: 'patient', legacyId: 'P-DEFAULT', state: 'clean' }],
+      total: 1,
+    });
+  });
 
-    // Sorted, so a second load is the same list in the same places under a
-    // reader who has scrolled.
-    expect(body.rows.map((row) => row.legacyId)).toEqual([...ids].sort());
+  it('answers no rows and the true total past the end of the list', async () => {
+    await seedPatient('P-ONLY-ONE');
+
+    const { status, body } = await loadRows({ table: 'patient', offset: '9' });
+
+    // An offset past the end is well-formed, not a fault — the same "an empty
+    // result is a state, not a failure" line the rules list already draws.
+    expect(status).toBe(200);
+    expect(body).toEqual({ rows: [], total: 1 });
+  });
+
+  it('rejects an offset or a limit that is not a whole number', async () => {
+    expect((await loadRows({ offset: '-1' })).status).toBe(400);
+    expect((await loadRows({ offset: 'one' })).status).toBe(400);
+    expect((await loadRows({ limit: '0' })).status).toBe(400);
+    expect((await loadRows({ limit: 'ten' })).status).toBe(400);
+
+    // Zero is a row number, so it is a legitimate offset and not a legitimate
+    // limit: a call asking for nothing is a caller bug.
+    expect((await loadRows({ offset: '0' })).status).toBe(200);
   });
 
   it('answers an empty list rather than an error when the dataset is empty', async () => {

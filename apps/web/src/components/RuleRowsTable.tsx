@@ -1,5 +1,6 @@
-import { Fragment, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ActionIcon,
   Button,
@@ -211,14 +212,49 @@ const FOUND_CELL: CSSProperties = {
   color: 'var(--mantine-color-dimmed)',
 };
 
+/** How tall a row is assumed to be before it has been measured. */
+const ESTIMATED_ROW_HEIGHT = 56;
+
+/** How much of the list is drawn. The virtualiser needs a scroll box to own. */
+const LIST_HEIGHT = 420;
+
 export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRowsTableProps) {
   // Source, legacy id, column and before, plus after on a rule that proposes
   // one and the decision column when the section is actionable. The full-width
   // cell below each ambiguous row spans exactly these.
   const columnCount = 4 + (ambiguous ? 0 : 1) + (actions === undefined ? 0 : 1);
 
+  /**
+   * Only the rows on screen are drawn.
+   *
+   * A rule can have thousands of findings — one on this catalogue has 2911 —
+   * and every one of them used to be in the DOM, several hundred nodes apiece,
+   * behind a 420-pixel window showing eight. The scroll box was already here;
+   * what is new is that what it scrolls over is mostly empty space.
+   *
+   * One `<tbody>` per row rather than one `<tr>`, which is what makes this work
+   * on an ambiguous rule: there a row is a `<tr>` and the full-width finding
+   * below it, and a ref cannot be put on the fragment holding both. A table may
+   * have any number of `<tbody>` elements, so each becomes the one element the
+   * virtualiser measures — and it measures rather than estimating, because a
+   * row carrying two input boxes is several times the height of one that does
+   * not.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 6,
+  });
+
+  const visible = virtualizer.getVirtualItems();
+  const above = visible.length > 0 ? visible[0].start : 0;
+  const below =
+    visible.length > 0 ? virtualizer.getTotalSize() - visible[visible.length - 1].end : 0;
+
   return (
-    <Table.ScrollContainer minWidth={640} mah={420} type="native">
+    <div ref={scrollRef} style={{ maxHeight: LIST_HEIGHT, overflow: 'auto' }}>
       {/*
         Not striped when a rule is ambiguous: an entry is two rows there, and
         the zebra would shade the row and the finding below it differently —
@@ -246,81 +282,107 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
             )}
           </Table.Tr>
         </Table.Thead>
-        <Table.Tbody>
-          {rows.map((row) => {
-            const { before, after } = comparison(row, ambiguous);
+        {above > 0 && (
+          <Table.Tbody>
+            <Table.Tr>
+              <Table.Td
+                colSpan={columnCount}
+                style={{ height: above, padding: 0, border: 'none' }}
+              />
+            </Table.Tr>
+          </Table.Tbody>
+        )}
+        {visible.map((item) => {
+          const row = rows[item.index];
 
-            return (
-              <Fragment key={keyOf(row)}>
-                <Table.Tr>
-                  <Table.Td>
-                    <Text size="sm">{row.table}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Code>{row.legacyId}</Code>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm">{row.column}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <DiffValue pieces={before} tone={ambiguous ? 'plain' : 'removed'} />
-                  </Table.Td>
-                  {!ambiguous && (
-                    <Table.Td>
-                      <DiffValue pieces={after} tone="added" />
-                    </Table.Td>
-                  )}
-                  {actions !== undefined && ambiguous && (
-                    <Table.Td>
-                      <AmbiguousRowActions row={row} actions={actions} />
-                    </Table.Td>
-                  )}
-                  {actions !== undefined && !ambiguous && (
-                    <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        {/*
+          return (
+            <Table.Tbody key={keyOf(row)} ref={virtualizer.measureElement} data-index={item.index}>
+              {(() => {
+                const { before, after } = comparison(row, ambiguous);
+
+                return (
+                  <>
+                    <Table.Tr>
+                      <Table.Td>
+                        <Text size="sm">{row.table}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Code>{row.legacyId}</Code>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{row.column}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <DiffValue pieces={before} tone={ambiguous ? 'plain' : 'removed'} />
+                      </Table.Td>
+                      {!ambiguous && (
+                        <Table.Td>
+                          <DiffValue pieces={after} tone="added" />
+                        </Table.Td>
+                      )}
+                      {actions !== undefined && ambiguous && (
+                        <Table.Td>
+                          <AmbiguousRowActions row={row} actions={actions} />
+                        </Table.Td>
+                      )}
+                      {actions !== undefined && !ambiguous && (
+                        <Table.Td>
+                          <Group gap="xs" wrap="nowrap">
+                            {/*
                       Glyphs rather than an icon component: no icon package is
                       installed and tech-stack §4.1 names none, so one is not
                       introduced for two buttons. The aria-label is what a
                       screen reader reads, since the glyph is decoration.
                     */}
-                        <Tooltip label="Approve this row" withArrow>
-                          <ActionIcon
-                            variant="light"
-                            color="green"
-                            aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
-                            disabled={actions.busy}
-                            onClick={() => actions.onApprove(row)}
-                          >
-                            ✓
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Decline this row" withArrow>
-                          <ActionIcon
-                            variant="light"
-                            color="red"
-                            aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
-                            disabled={actions.busy}
-                            onClick={() => actions.onDecline(row)}
-                          >
-                            ✕
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
-                  )}
-                </Table.Tr>
-                {ambiguous && (
-                  <Table.Tr>
-                    <Table.Td colSpan={columnCount} style={FOUND_CELL}>
-                      <Text size="sm">{description}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </Table.Tbody>
+                            <Tooltip label="Approve this row" withArrow>
+                              <ActionIcon
+                                variant="light"
+                                color="green"
+                                aria-label={`Approve ${row.table} ${row.legacyId} ${row.column}`}
+                                disabled={actions.busy}
+                                onClick={() => actions.onApprove(row)}
+                              >
+                                ✓
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Decline this row" withArrow>
+                              <ActionIcon
+                                variant="light"
+                                color="red"
+                                aria-label={`Decline ${row.table} ${row.legacyId} ${row.column}`}
+                                disabled={actions.busy}
+                                onClick={() => actions.onDecline(row)}
+                              >
+                                ✕
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Table.Td>
+                      )}
+                    </Table.Tr>
+                    {ambiguous && (
+                      <Table.Tr>
+                        <Table.Td colSpan={columnCount} style={FOUND_CELL}>
+                          <Text size="sm">{description}</Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    )}
+                  </>
+                );
+              })()}
+            </Table.Tbody>
+          );
+        })}
+        {below > 0 && (
+          <Table.Tbody>
+            <Table.Tr>
+              <Table.Td
+                colSpan={columnCount}
+                style={{ height: below, padding: 0, border: 'none' }}
+              />
+            </Table.Tr>
+          </Table.Tbody>
+        )}
         {/*
           The glyphs need saying once. Without this a reader meets `·` in a red
           highlight and has to guess whether the old value contained a dot or a
@@ -333,6 +395,6 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
           </Text>
         </Table.Caption>
       </Table>
-    </Table.ScrollContainer>
+    </div>
   );
 }

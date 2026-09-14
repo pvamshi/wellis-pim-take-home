@@ -328,10 +328,17 @@ export function rowUrl(table: LegacySourceTable, legacyId: string, path = ''): s
   return `${rowsUrl}/${encodeURIComponent(table)}/${encodeURIComponent(legacyId)}${path}`;
 }
 
-/** What the rows screen's list may be narrowed to (1.6.1). Both narrowings are optional. */
+/**
+ * What the rows screen's list may be narrowed to (1.6.1), and which window of
+ * it is wanted. All four are optional.
+ */
 export interface RowsListFilter {
   readonly table?: LegacySourceTable;
   readonly state?: RowState;
+  /** How many rows to skip — where the next fetch of a scrolling list starts. */
+  readonly offset?: number;
+  /** How many to ask for. The backend has its own default and its own cap. */
+  readonly limit?: number;
 }
 
 /**
@@ -349,6 +356,8 @@ export async function getRows(
   const params = new URLSearchParams();
   if (filter.table !== undefined) params.set('table', filter.table);
   if (filter.state !== undefined) params.set('state', filter.state);
+  if (filter.offset !== undefined) params.set('offset', String(filter.offset));
+  if (filter.limit !== undefined) params.set('limit', String(filter.limit));
 
   const query = params.toString();
   return await requestJson<RowsListResponse>(query === '' ? rowsUrl : `${rowsUrl}?${query}`, {
