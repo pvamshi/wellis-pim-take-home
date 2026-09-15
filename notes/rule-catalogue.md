@@ -115,7 +115,7 @@ Each rule obeys the constraints we settled:
 | id | Catches | Proposes | ✱ |
 |---|---|---|---|
 | P46 | A recognised spelling — `KG`, `kgs`, `kilo`, `Kilogram`, `lb`, `lbs`, `pounds` | The canonical unit | |
-| P47 | Empty while `weight` has a value — the backfill "where obvious" left the rest | — | ✱ |
+| P47 | Empty while `weight` has a value — the backfill "where obvious" left the rest | v1: — ✱ · v2: `kg`, the default unit | |
 | P48 | A unit nobody recognises | — | ✱ |
 
 ### height_cm
@@ -356,3 +356,7 @@ Three ways out, none of them chosen:
 
 Nothing in the catalogue above depends on the answer, so it can wait — but
 P41–P48 are incomplete until it is settled.
+
+**Settled: kilograms is the default, and the conversion is not built (D6).**
+P47 v2 proposes `kg` for an empty unit instead of asking. A pounds weight is
+left as it is and fails legacy import until corrected by hand.

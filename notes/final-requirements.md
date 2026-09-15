@@ -160,6 +160,9 @@ type RuleResponse = {
 
 ### 1.1.4 A rule is atomic
 
+> **Deferred (D6):** fixes spanning two columns are not built. Kilograms is the
+> default weight unit, so the pounds conversion below is not needed now.
+
 One rule, one fix. Several fixes are never clubbed into a single rule. A rule is
 approved or declined as one thing, and the reason a value changed is always a
 single rule, never a bundle.

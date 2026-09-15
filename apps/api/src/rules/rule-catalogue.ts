@@ -45,6 +45,7 @@ import { p44 } from './catalogue/p44';
 import { p45 } from './catalogue/p45';
 import { p46 } from './catalogue/p46';
 import { p47 } from './catalogue/p47';
+import { p47V2 } from './catalogue/p47-v2';
 import { p48 } from './catalogue/p48';
 import { p49 } from './catalogue/p49';
 import { p50 } from './catalogue/p50';
@@ -199,6 +200,9 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   p45,
   p46,
   p47,
+  // After v1: the sync writes a rule's name, description and ambiguity from the
+  // last entry it meets, and v2 is the one that runs.
+  p47V2,
   p48,
   p49,
   p50,

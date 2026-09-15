@@ -326,8 +326,15 @@ export function validateSignupDate(value: unknown, asOf: Date = new Date()): Fie
   return null;
 }
 
-/** 2.5: "weight (legacy) | weight_unit is kg" — named `weight`, the row's own field name, even though the value at fault is the unit. */
+/**
+ * 2.5: "weight (legacy) | weight_unit is kg, or empty — kg is the default (D6)".
+ * Named `weight`, the row's own field name, even though the value at fault is
+ * the unit. A pounds weight fails: converting it is deferred (D6).
+ */
 export function validateLegacyWeightUnit(weightUnit: unknown): FieldError | null {
+  if (weightUnit === null || weightUnit === undefined) return null;
+  if (typeof weightUnit === 'string' && weightUnit.trim() === '') return null;
+
   if (typeof weightUnit !== 'string' || weightUnit.trim().toLowerCase() !== 'kg') {
     return fieldError('weight', weightUnit, 'weight must be recorded in kg');
   }
