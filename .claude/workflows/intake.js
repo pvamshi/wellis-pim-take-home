@@ -97,7 +97,9 @@ const TASKS = [
 - \`GET /review/intakes\` (status and origin filters), \`GET /review/intakes/:id\`
   (answers, evaluation, audit history), \`POST .../start\`, \`POST .../decide\`
   with a required trimmed note.
-- Tests: email taken → 409; patching a submitted row → 409; submit stores the
+- Tests: two drafts may share an email; submitting with an email a non-draft
+  patient holds → 409 with a field error on email and nothing written; patching
+  a submitted row → 409; submit stores the
   evaluation and writes draft→submitted and submitted→auto_* audit events;
   decide without a note → 422; start on a non-auto status → 409; the queue's
   default filter.`,
@@ -152,6 +154,25 @@ const TASKS = [
 - Run 'just build' and make it pass.`,
   },
 ]
+
+// One develop → review → land cycle per batch, not per task: each cycle pays
+// for a full read-in of the codebase and a build and test run in every agent,
+// so seven cycles cost more than twice what three do. Batches follow the seams
+// where one layer is finished before the next reads it.
+const BATCHES = [
+  ['B1', 'B2'],
+  ['B3', 'B4'],
+  ['B5', 'B6', 'B7'],
+]
+
+function batchTask(tasks) {
+  return {
+    id: tasks.map((task) => task.id).join('+'),
+    title: tasks.map((task) => `${task.id} ${task.title}`).join('; '),
+    nodes: [...new Set(tasks.flatMap((task) => task.nodes))],
+    detail: tasks.map((task) => `${task.id} — ${task.title}\n${task.detail}`).join('\n\n'),
+  }
+}
 
 const DEV_SCHEMA = {
   type: 'object',
@@ -296,14 +317,17 @@ Return the structured result.`,
 }
 
 const wanted = Array.isArray(args) && args.length ? args.map(String) : null
-const selected = wanted ? TASKS.filter((task) => wanted.includes(task.id)) : TASKS
+const selected = BATCHES
+  .map((ids) => TASKS.filter((task) => ids.includes(task.id) && (!wanted || wanted.includes(task.id))))
+  .filter((tasks) => tasks.length)
+  .map(batchTask)
 
-log(`${selected.length} task${selected.length === 1 ? '' : 's'}`)
+log(`${selected.length} batch${selected.length === 1 ? '' : 'es'}: ${selected.map((batch) => batch.id).join(', ')}`)
 
 const done = []
 let halted = null
 
-// Serial: each task builds on the one before, and two agents running the test
+// Serial: each batch builds on the one before, and two agents running the test
 // suite at once would each see the other's half-written code.
 for (const task of selected) {
   const result = await buildTask(task)

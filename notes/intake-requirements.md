@@ -58,7 +58,7 @@ Existing and unchanged: `legacy`, `rules`, `rows`, `duplicates`.
 | `intake_status` | text | not null, `CHECK` on the 8 states (2.2) |
 | `origin` | text | not null, `CHECK IN (intake, legacy)` |
 | `full_name` | text | not null |
-| `email` | text | not null, unique, lowercased |
+| `email` | text | not null, lowercased; unique among non-draft rows (partial index `WHERE intake_status <> 'draft'`) |
 | `date_of_birth` | text | `YYYY-MM-DD`, not null |
 | `height_cm` | real | null, 1 dp |
 | `weight_kg` | real | null, 1 dp |
@@ -87,7 +87,8 @@ Existing and unchanged: `legacy`, `rules`, `rows`, `duplicates`.
 - `intake_status` (where the patient is in intake and review) is not
   `account_status` (commercial, from legacy).
 - `origin` not `source`: legacy `source` is the acquisition funnel.
-- One row per email. A decision's note lives in `audit_event.reason`.
+- One submitted patient per email; drafts may share one. A decision's note
+  lives in `audit_event.reason`.
 
 ### 2.1.2 `consent_event`
 
@@ -139,7 +140,9 @@ awaiting a human decision. `auto_rejected` can be reviewed.
 Multi-step, one questionnaire step per screen, moving through 2.2.
 
 - Step 1 saved → `POST /intakes` creates the `patient` row, `draft`.
-- Email already in `patient` → 409 at step 1.
+- Email held by a non-draft patient (an imported legacy patient included) →
+  checked on submit only: 409 with a field error on `email`, nothing written;
+  the form returns to step 1 showing it.
 - Each Next → `PATCH` saves that step; the server validates that step's fields.
 - Draft id in the URL and localStorage; resumable; read-only once submitted.
 - No BMI and no likely outcome shown before submit — a live verdict invites
@@ -388,9 +391,9 @@ Every state change and every human decision.
 
 | Method | Path | Does | Errors |
 |---|---|---|---|
-| POST | `/intakes` | step 1 → `patient` row, `draft` | 409 email taken · 422 |
+| POST | `/intakes` | step 1 → `patient` row, `draft` | 422 |
 | PATCH | `/intakes/:id` | save one step | 409 not draft · 422 |
-| POST | `/intakes/:id/submit` | validate all, `submitted` → `auto_*` | 409 · 422 |
+| POST | `/intakes/:id/submit` | validate all, `submitted` → `auto_*` | 409 not draft · 409 email taken · 422 |
 | GET | `/intakes/:id` | patient view, neutral status | 404 |
 | GET | `/review/intakes` | queue, status and origin filters | 400 |
 | GET | `/review/intakes/:id` | answers, evaluation, history | 404 |
@@ -407,8 +410,7 @@ Every state change and every human decision.
 
 - No authentication: a draft is reached by uuid; `actor` is a typed name.
 - A ruleset change does not re-evaluate past rows.
-- One row per email: an abandoned draft holds its email; clearing stale drafts
-  is deferred.
+- Abandoned drafts are never cleared.
 - Legacy intakes are not migrated into `patient`; they remain history.
 - Work queue across Part A and B, conflict view, patient detail: Part C.
 
