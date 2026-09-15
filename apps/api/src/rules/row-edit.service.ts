@@ -66,6 +66,8 @@ export interface RowEditReport {
   readonly ruleId: string;
   /** The finding's own version, unique per `(legacyId, ruleId, column)`. */
   readonly version: number;
+  /** Why it was changed by hand, as the human wrote it — kept as the finding's reason. */
+  readonly note: string;
 }
 
 /** The legacy data table and rule table of one source, and how each is addressed. */
@@ -218,7 +220,9 @@ export class RowEditService {
   /**
    * Writes `value` to `column` on every physical legacy row sharing `legacyId`
    * (1.0.3), and records the change as an approved finding under
-   * `HAND_EDIT_RULE_ID`.
+   * `HAND_EDIT_RULE_ID`, with `note` as that finding's reason — the column a
+   * decline's reason already lives in, so every note a human leaves on a
+   * finding is in one place.
    *
    * Null when the legacy data table holds no row with this legacy id — the
    * same 404 shape `RowDetailService.detail` already gives for this exact
@@ -231,6 +235,7 @@ export class RowEditService {
     legacyId: string,
     column: string,
     value: string | null,
+    note: string,
   ): Promise<RowEditReport | null> {
     const source = rowEditSources[table];
     const dataRepository = this.dataSource.getRepository(source.data);
@@ -275,7 +280,7 @@ export class RowEditService {
         previousValue,
         nextValue: value,
         status: 'approved',
-        reason: null,
+        reason: note,
       });
 
       return {
@@ -286,6 +291,7 @@ export class RowEditService {
         nextValue: value,
         ruleId: HAND_EDIT_RULE_ID,
         version,
+        note,
       };
     });
   }

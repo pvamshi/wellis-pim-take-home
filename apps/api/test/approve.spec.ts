@@ -753,6 +753,47 @@ describe('approving rule rows', () => {
     ]);
   });
 
+  it('writes a value supplied for an ambiguous finding only with a note, and keeps the note', async () => {
+    await seedRule('R-TYPED', [1], 1);
+    await seedFindings(patientRules, [
+      {
+        legacyId: 'P-1',
+        ruleId: 'R-TYPED',
+        column: 'phone',
+        previousValue: '0612345678',
+        nextValue: null,
+      },
+    ]);
+
+    const address = { table: 'patient', legacyId: 'P-1', version: 1, column: 'phone' };
+
+    // No rule proposed this value, so without a note nothing would explain it
+    // (1.2.13). A note with no value has nothing to explain.
+    const noNote = await approveRow('R-TYPED', { ...address, value: '+31612345678' });
+    const blankNote = await approveRow('R-TYPED', { ...address, value: '+31612345678', note: ' ' });
+    const noteAlone = await approveRow('R-TYPED', { ...address, note: 'nothing to explain' });
+
+    expect([noNote.status, blankNote.status, noteAlone.status]).toEqual([400, 400, 400]);
+    expect((await patient('P-1')).phone).toBe('0612345678');
+
+    const noted = await approveRow('R-TYPED', {
+      ...address,
+      value: '+31612345678',
+      note: ' Confirmed on the phone ',
+    });
+
+    expect(noted.status).toBe(200);
+    expect(noted.body).toMatchObject({ ruleId: 'R-TYPED', version: 1, approved: 1 });
+    expect((await patient('P-1')).phone).toBe('+31612345678');
+    expect(
+      await patientRules.findOneBy({ legacyId: 'P-1', ruleId: 'R-TYPED', column: 'phone' }),
+    ).toMatchObject({
+      status: 'approved',
+      nextValue: '+31612345678',
+      reason: 'Confirmed on the phone',
+    });
+  });
+
   it('refuses a finding whose legacy id matches no legacy row', async () => {
     await seedRule('R-GHOST', [1], 1);
     await seedFindings(patientRules, [

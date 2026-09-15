@@ -12,6 +12,7 @@ import {
   RuleApprovalsService,
   type RuleApprovalReport,
   type RuleRowAddress,
+  type SuppliedValue,
 } from '../rules/rule-approvals.service';
 
 /**
@@ -92,19 +93,27 @@ function readAddress(ruleId: string, body: unknown): RuleRowAddress {
 }
 
 /**
- * Reads the value the human typed for an ambiguous finding, or undefined when
- * they typed none.
+ * Reads the value the human typed for an ambiguous finding and the note that
+ * comes with it, or undefined when they typed no value.
  *
  * Absent and null are the same request — the ordinary approve, applying what
- * the rule proposed. A blank string is not: clearing a column is a legitimate
+ * the rule proposed. A blank value is not: clearing a column is a legitimate
  * answer to "what should this be", and refusing it here would mean the one
- * answer the screen cannot give is the empty one. Only the wrong *type* is a
- * bad request.
+ * answer the screen cannot give is the empty one.
+ *
+ * A value no rule proposed is a change with no rule to explain it, so it needs
+ * a note saying why, exactly as a hand edit does (1.6.7): a missing or blank
+ * note is a 400. A note with no value has nothing to explain, and is a 400
+ * rather than being dropped without a word.
  */
-function readValue(body: unknown): string | undefined {
-  const { value } = body as Record<string, unknown>;
+function readSuppliedValue(body: unknown): SuppliedValue | undefined {
+  const { value, note } = body as Record<string, unknown>;
 
   if (value === undefined || value === null) {
+    if (note !== undefined && note !== null) {
+      throw new BadRequestException('a note is only taken with a value you supply');
+    }
+
     return undefined;
   }
 
@@ -112,7 +121,11 @@ function readValue(body: unknown): string | undefined {
     throw new BadRequestException('value must be a string when it is given');
   }
 
-  return value;
+  if (typeof note !== 'string' || note.trim().length === 0) {
+    throw new BadRequestException('a note is required with a value you supply: say why it is that value');
+  }
+
+  return { value, note: note.trim() };
 }
 
 /**
@@ -170,9 +183,9 @@ export class ApproveController {
    * is the only way to address a finding — rule rows have no surrogate id.
    *
    * An optional `value` settles a row an ambiguous rule could not (1.1.12): the
-   * human supplies what the rule would not guess, and it is applied down the
-   * same path as a proposal of the rule's own. The service refuses it for a row
-   * that already proposes a value.
+   * human supplies what the rule would not guess, with a required `note`, and
+   * it is applied down the same path as a proposal of the rule's own. The
+   * service refuses it for a row that already proposes a value.
    */
   @Post(':ruleId/rows/approve')
   @HttpCode(HttpStatus.OK)
@@ -180,6 +193,6 @@ export class ApproveController {
     @Param('ruleId') ruleId: string,
     @Body() body: unknown,
   ): Promise<ApproveResponse> {
-    return await this.approvals.approveRow(readAddress(ruleId, body), readValue(body));
+    return await this.approvals.approveRow(readAddress(ruleId, body), readSuppliedValue(body));
   }
 }

@@ -196,14 +196,14 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
    * rule proposes nothing, so there is nothing for a bare approve to write, and
    * this is what gives such a row a way to be settled other than declining it.
    * Blank is a real answer — it says the column should hold nothing — so it is
-   * sent like any other.
+   * sent like any other, with the note saying why.
    */
-  function onRowApproveWithValue(row: RuleDetailRow, value: string) {
+  function onRowApproveWithValue(row: RuleDetailRow, value: string, note: string) {
     const address = addressOf(row);
     if (address === null) return;
 
     press(async () => {
-      const report = await approveRow(ruleId, address, value);
+      const report = await approveRow(ruleId, address, { value, note });
       return report.approved === 0
         ? `Nothing to set on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
         : `Set ${address.table} ${address.legacyId}, ${address.column} to "${value}", updating ${rowCount(report.updated)} of legacy data.`;

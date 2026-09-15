@@ -299,15 +299,18 @@ export async function approveRule(ruleId: string): Promise<ApproveReport> {
  * empty box is an answer ("this column should hold nothing"), which is why this
  * is not `reasonField`'s blank-means-absent rule. The backend refuses it for a
  * row that already proposes a value.
+ *
+ * `note` says why it is that value, and is required with one: the backend
+ * answers 400 without it.
  */
 export async function approveRow(
   ruleId: string,
   row: RuleRowAddress,
-  value?: string,
+  supplied?: { readonly value: string; readonly note: string },
 ): Promise<ApproveReport> {
   return await requestJson<ApproveReport>(ruleUrl(ruleId, '/rows/approve'), {
     method: 'POST',
-    body: value === undefined ? row : { ...row, value },
+    body: supplied === undefined ? row : { ...row, value: supplied.value, note: supplied.note },
   });
 }
 
@@ -522,16 +525,19 @@ export async function unrejectRow(
  * `value` is `null` to clear the column (1.2.13's "a blank box is an
  * answer") — distinct from an empty string, which the backend treats as a
  * deliberate "set it to empty" rather than "clear it".
+ *
+ * `note` says why, and is required: the backend answers 400 without it.
  */
 export async function editRow(
   table: LegacySourceTable,
   legacyId: string,
   column: string,
   value: string | null,
+  note: string,
 ): Promise<RowEditReport> {
   return await requestJson<RowEditReport>(rowUrl(table, legacyId, '/edit'), {
     method: 'POST',
-    body: { column, value },
+    body: { column, value, note },
   });
 }
 

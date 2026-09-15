@@ -674,9 +674,14 @@ to the data, so taking it back costs nothing and loses nothing.
 ```gherkin
 Scenario: a value no rule has an opinion about
   Given patient P-0310 has a city no rule caught
-  When Vamshi edits that field and saves
+  When Vamshi edits that field, writes a note saying why, and saves
   Then the column is written
   And the modification log records the change like any other (1.3)
+  And the row's log shows it as changed by hand, with the note
+
+Scenario: no note, no edit
+  When Vamshi edits a field and writes no note
+  Then nothing can be saved
 ```
 
 The engine's one guarantee is that every change to legacy data says which rule,
@@ -690,6 +695,12 @@ shape, every change is in it, and a hand edit is legible as a hand edit because
 of the rule id it carries. This is the same move 1.1.12's typed value makes: the
 human's answer enters through the path a rule's answer takes, rather than beside
 it.
+
+The note is required. A rule's change is explained by the rule that made it; a
+change made by hand has only what the human says about it. It is kept as the
+finding's reason, the column a decline's reason already uses, and the row's log
+shows it beside the change. A value typed for an ambiguous finding (1.2.13) is a
+change by hand too, and carries a required note the same way.
 
 ---
 

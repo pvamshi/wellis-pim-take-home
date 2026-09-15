@@ -342,6 +342,10 @@ export interface RowDetailSettledFinding {
   readonly nextValue: string | null;
   /** Approved wrote `nextValue` to the row; declined kept `previousValue`. */
   readonly status: 'approved' | 'declined';
+  /** What the human wrote: why a value was changed by hand or supplied, or why it was declined. */
+  readonly note: string | null;
+  /** True when a human chose the value (a hand edit, or a value typed for an ambiguous finding). */
+  readonly byHand: boolean;
 }
 
 /**
@@ -421,6 +425,8 @@ export interface RowEditReport {
   readonly ruleId: string;
   /** The finding's own version, unique per `(legacyId, ruleId, column)`. */
   readonly version: number;
+  /** Why it was changed by hand, as written. */
+  readonly note: string;
 }
 
 /** A link's status (1.7.3). `pending` → `confirmed` | `dismissed`, both final. */

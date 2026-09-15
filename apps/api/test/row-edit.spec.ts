@@ -122,7 +122,11 @@ describe('a field corrected by hand', () => {
       },
     ]);
 
-    const { status, body } = await edit('P-0310', { column: 'city', value: 'Utrecht' });
+    const { status, body } = await edit('P-0310', {
+      column: 'city',
+      value: 'Utrecht',
+      note: ' Moved, per her email ',
+    });
 
     // 200 rather than the 201 a POST defaults to: nothing was created at a URL.
     expect(status).toBe(200);
@@ -134,6 +138,7 @@ describe('a field corrected by hand', () => {
       nextValue: 'Utrecht',
       ruleId: HAND_EDIT_RULE_ID,
       version: 1,
+      note: 'Moved, per her email',
     });
 
     // The column itself was written.
@@ -150,6 +155,8 @@ describe('a field corrected by hand', () => {
       previousValue: 'Old Town',
       nextValue: 'Utrecht',
       status: 'approved',
+      // The note is the finding's reason: the one explanation a hand edit has.
+      reason: 'Moved, per her email',
     });
 
     // The reserved rule row itself reads to a human in the console.
@@ -170,8 +177,8 @@ describe('a field corrected by hand', () => {
       },
     ]);
 
-    const first = await edit('P-TWICE', { column: 'city', value: 'Second City' });
-    const second = await edit('P-TWICE', { column: 'city', value: 'Third City' });
+    const first = await edit('P-TWICE', { column: 'city', value: 'Second City', note: 'moved' });
+    const second = await edit('P-TWICE', { column: 'city', value: 'Third City', note: 'again' });
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -201,7 +208,11 @@ describe('a field corrected by hand', () => {
       { legacyPatientId: 'P-NOFIELD', fullName: 'Amir Yilmaz', rawData: '{"id":"P-NOFIELD"}' },
     ]);
 
-    const { status } = await edit('P-NOFIELD', { column: 'not_a_real_column', value: 'anything' });
+    const { status } = await edit('P-NOFIELD', {
+      column: 'not_a_real_column',
+      value: 'anything',
+      note: 'n',
+    });
 
     expect(status).toBe(400);
     expect(await patient('P-NOFIELD')).toMatchObject({ fullName: 'Amir Yilmaz' });
@@ -213,9 +224,13 @@ describe('a field corrected by hand', () => {
       { legacyPatientId: 'P-GUARDED', fullName: 'Zoe Willems', rawData: '{"id":"P-GUARDED"}' },
     ]);
 
-    const idAttempt = await edit('P-GUARDED', { column: 'id', value: 'anything' });
-    const legacyIdAttempt = await edit('P-GUARDED', { column: 'legacy_id', value: 'P-OTHER' });
-    const rawDataAttempt = await edit('P-GUARDED', { column: 'raw_data', value: '{}' });
+    const idAttempt = await edit('P-GUARDED', { column: 'id', value: 'anything', note: 'n' });
+    const legacyIdAttempt = await edit('P-GUARDED', {
+      column: 'legacy_id',
+      value: 'P-OTHER',
+      note: 'n',
+    });
+    const rawDataAttempt = await edit('P-GUARDED', { column: 'raw_data', value: '{}', note: 'n' });
 
     expect(idAttempt.status).toBe(400);
     expect(legacyIdAttempt.status).toBe(400);
@@ -224,7 +239,7 @@ describe('a field corrected by hand', () => {
   });
 
   it('answers 404 for a legacy id the data table has never seen, and writes nothing', async () => {
-    const { status } = await edit('P-GHOST', { column: 'city', value: 'Anywhere' });
+    const { status } = await edit('P-GHOST', { column: 'city', value: 'Anywhere', note: 'n' });
 
     expect(status).toBe(404);
     expect(await findingsOf('P-GHOST')).toEqual([]);
@@ -233,7 +248,7 @@ describe('a field corrected by hand', () => {
   it('rejects a table that is not one of the three legacy sources', async () => {
     const response = await request(app.getHttpServer())
       .post('/rows/nowhere/P-ANYTHING/edit')
-      .send({ column: 'city', value: 'Anywhere' });
+      .send({ column: 'city', value: 'Anywhere', note: 'n' });
 
     expect(response.status).toBe(400);
   });
@@ -248,14 +263,34 @@ describe('a field corrected by hand', () => {
       },
     ]);
 
-    const missing = await edit('P-CLEAR', { column: 'city' });
+    const missing = await edit('P-CLEAR', { column: 'city', note: 'n' });
     expect(missing.status).toBe(400);
     expect(await patient('P-CLEAR')).toMatchObject({ city: 'Somewhere' });
 
-    const cleared = await edit('P-CLEAR', { column: 'city', value: null });
+    const cleared = await edit('P-CLEAR', { column: 'city', value: null, note: 'not a city' });
     expect(cleared.status).toBe(200);
     expect(cleared.body).toMatchObject({ previousValue: 'Somewhere', nextValue: null });
     expect(await patient('P-CLEAR')).toMatchObject({ city: null });
+  });
+
+  it('requires a note: a missing or blank one is a 400, and nothing is written', async () => {
+    await insertPatients([
+      {
+        legacyPatientId: 'P-NONOTE',
+        fullName: 'Lotte Visser',
+        city: 'Delft',
+        rawData: '{"id":"P-NONOTE"}',
+      },
+    ]);
+
+    const missing = await edit('P-NONOTE', { column: 'city', value: 'Leiden' });
+    const blank = await edit('P-NONOTE', { column: 'city', value: 'Leiden', note: '   ' });
+    const wrongType = await edit('P-NONOTE', { column: 'city', value: 'Leiden', note: 7 });
+
+    // A hand edit has no rule behind it, so the note is its only explanation.
+    expect([missing.status, blank.status, wrongType.status]).toEqual([400, 400, 400]);
+    expect(await patient('P-NONOTE')).toMatchObject({ city: 'Delft' });
+    expect(await findingsOf('P-NONOTE')).toEqual([]);
   });
 
   it('writes every physical row sharing a legacy id (1.0.3), reading previousValue off the first', async () => {
@@ -266,7 +301,7 @@ describe('a field corrected by hand', () => {
 
     const rowsBefore = await patients.find({ where: { legacyPatientId: 'P-DUP' }, order: { id: 'ASC' } });
 
-    const { status, body } = await edit('P-DUP', { column: 'city', value: 'Shared' });
+    const { status, body } = await edit('P-DUP', { column: 'city', value: 'Shared', note: 'n' });
 
     expect(status).toBe(200);
     expect(body.previousValue).toBe(rowsBefore[0].city);

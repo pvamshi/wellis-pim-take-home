@@ -12,6 +12,7 @@ import {
   type LegacyRuleStatus,
 } from '../src/legacy/legacy-rule.entity';
 import type { RowDetailResponse } from '../src/row-detail/row-detail.controller';
+import { HAND_EDIT_RULE_ID } from '../src/rules/row-edit.service';
 import { Rule } from '../src/rules/rule.entity';
 import { createTemporaryDatabase, type TemporaryDatabase } from './temp-database';
 
@@ -41,6 +42,7 @@ interface FindingSeed {
   previousValue?: string | null;
   nextValue?: string | null;
   status?: LegacyRuleStatus;
+  reason?: string | null;
 }
 
 describe('the row detail', () => {
@@ -257,7 +259,14 @@ describe('the row detail', () => {
         version: 1,
         pending: [{ column: 'email', previousValue: 'old@x.nl', nextValue: 'new@x.nl' }],
         settled: [
-          { column: 'phone', previousValue: '06-1', nextValue: '+31-6-1', status: 'approved' },
+          {
+            column: 'phone',
+            previousValue: '06-1',
+            nextValue: '+31-6-1',
+            status: 'approved',
+            note: null,
+            byHand: false,
+          },
         ],
       },
       {
@@ -273,9 +282,51 @@ describe('the row detail', () => {
             previousValue: 'Rotterdam',
             nextValue: 'Amsterdam',
             status: 'declined',
+            note: null,
+            byHand: false,
           },
         ],
       },
+    ]);
+  });
+
+  it('marks a value a human chose as changed by hand, and carries every note into the log', async () => {
+    await seedRule(HAND_EDIT_RULE_ID, { ruleName: 'Hand edit' });
+    await seedRule('R-ASKS', { ambiguous: true });
+    await seedRule('R-FIXES');
+    await seedPatient('P-HAND');
+
+    await seedFindings(patientRules, [
+      {
+        legacyId: 'P-HAND',
+        ruleId: HAND_EDIT_RULE_ID,
+        column: 'city',
+        status: 'approved',
+        reason: 'Moved',
+      },
+      {
+        legacyId: 'P-HAND',
+        ruleId: 'R-ASKS',
+        column: 'dob',
+        status: 'approved',
+        reason: 'Read off the passport',
+      },
+      { legacyId: 'P-HAND', ruleId: 'R-ASKS', version: 2, column: 'email', status: 'declined', reason: 'Leave it' },
+      { legacyId: 'P-HAND', ruleId: 'R-FIXES', column: 'phone', status: 'approved' },
+    ]);
+
+    const { body } = await loadRow('patient', 'P-HAND');
+    const log = body.findings.flatMap((group) =>
+      group.settled.map((entry) => [group.ruleId, entry.column, entry.byHand, entry.note]),
+    );
+
+    // A hand edit, and a value typed for an ambiguous finding, were chosen by a
+    // human; a decline wrote nothing, and a rule's own proposal is the rule's.
+    expect(log).toEqual([
+      [HAND_EDIT_RULE_ID, 'city', true, 'Moved'],
+      ['R-ASKS', 'dob', true, 'Read off the passport'],
+      ['R-ASKS', 'email', false, 'Leave it'],
+      ['R-FIXES', 'phone', false, null],
     ]);
   });
 

@@ -91,6 +91,16 @@ export interface RuleRowAddress {
 }
 
 /**
+ * A value a human supplied for a finding its rule proposed none for (1.1.12),
+ * and the note saying why it is that value (1.2.13). The note is kept as the
+ * finding's reason.
+ */
+export interface SuppliedValue {
+  readonly value: string;
+  readonly note: string;
+}
+
+/**
  * What one press of Approve all on a row did (1.6.4).
  *
  * `table` and `legacyId` echo the address, the way `RuleApprovalReport` echoes
@@ -421,8 +431,11 @@ export class RuleApprovalsService {
    * other than what the rule said, which the whole engine is built on not doing
    * — the way to disagree with a proposal is the cross, and the way to change
    * one is a new version of the rule (1.1.8, 1.2.8).
+   *
+   * The note that comes with a supplied value is kept as the finding's reason,
+   * so the row's log says why a value no rule proposed was written (1.2.13).
    */
-  async approveRow(address: RuleRowAddress, value?: string): Promise<RuleApprovalReport> {
+  async approveRow(address: RuleRowAddress, supplied?: SuppliedValue): Promise<RuleApprovalReport> {
     const { table, legacyId, ruleId, version, column } = address;
 
     return await this.dataSource.transaction(async (manager: EntityManager) => {
@@ -444,14 +457,14 @@ export class RuleApprovalsService {
         return nothing;
       }
 
-      if (value !== undefined) {
+      if (supplied !== undefined) {
         if (row.nextValue !== null) {
           throw new Error(
             `cannot supply a value for ${describe(source, row)}: the rule already proposes one`,
           );
         }
 
-        row.nextValue = value;
+        row.nextValue = supplied.value;
       }
 
       const updated = await applyPrepared(manager, await prepare(manager, source, [row]));
@@ -464,7 +477,10 @@ export class RuleApprovalsService {
         // got approved, and the modification log would have nothing to print
         // for what was written. An ambiguous rule's rows are the only ones this
         // can happen to, which is what says a human typed it.
-        { status: 'approved', ...(value === undefined ? {} : { nextValue: value }) },
+        {
+          status: 'approved',
+          ...(supplied === undefined ? {} : { nextValue: supplied.value, reason: supplied.note }),
+        },
       );
 
       return { ruleId, version, approved: 1, updated };

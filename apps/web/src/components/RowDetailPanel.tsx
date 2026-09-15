@@ -48,6 +48,8 @@ interface DeclineTarget {
 interface Editing {
   readonly column: string;
   readonly value: string;
+  /** Why it is being changed. Required: nothing saves while it is blank. */
+  readonly note: string;
 }
 
 export interface RowDetailPanelProps {
@@ -198,12 +200,17 @@ export function RowDetailPanel({
     });
   }
 
-  /** The human's own answer to a finding the rule could not answer (1.1.12, 1.2.13). */
-  function onFindingApproveWithValue(group: RowDetailRuleGroup, row: RuleDetailRow, value: string) {
+  /** The human's own answer to a finding the rule could not answer (1.1.12, 1.2.13), with why. */
+  function onFindingApproveWithValue(
+    group: RowDetailRuleGroup,
+    row: RuleDetailRow,
+    value: string,
+    note: string,
+  ) {
     const address = addressOf(group, row);
 
     press(async () => {
-      const report = await approveRow(group.ruleId, address, value);
+      const report = await approveRow(group.ruleId, address, { value, note });
       return report.approved === 0
         ? `Nothing to set: ${legacyId}, ${address.column} was already settled.`
         : `Set ${address.column} on ${legacyId} to "${value}".`;
@@ -292,14 +299,15 @@ export function RowDetailPanel({
     pressRejection(() => unrejectRow(table, legacyId), `Un-rejected ${legacyId}.`);
   }
 
-  /** A field corrected by hand (1.6.7), logged as an approved finding under "Hand edit". Null clears the field. */
+  /** A field corrected by hand (1.6.7), logged under "Hand edit" with its note. Null clears the field. */
   function saveEdit(value: string | null) {
-    if (editing === null) return;
+    if (editing === null || editing.note.trim() === '') return;
     const { column } = editing;
+    const note = editing.note.trim();
 
     press(
       async () => {
-        const report = await editRow(table, legacyId, column, value);
+        const report = await editRow(table, legacyId, column, value, note);
         return report.nextValue === null
           ? `Cleared ${column} on ${legacyId}.`
           : `Set ${column} on ${legacyId} to "${report.nextValue}".`;
@@ -473,15 +481,14 @@ export function RowDetailPanel({
                       </Text>
                     </Table.Td>
                     <Table.Td colSpan={detail.dataRows.length + 1}>
-                      <Group gap="xs" wrap="nowrap">
+                      <Stack gap={6}>
                         <TextInput
                           size="xs"
-                          style={{ flex: 1 }}
                           aria-label={`New value for ${column}`}
                           value={editing.value}
                           disabled={busy}
                           onChange={(event) =>
-                            setEditing({ column, value: event.currentTarget.value })
+                            setEditing({ ...editing, value: event.currentTarget.value })
                           }
                           onKeyDown={(event) => {
                             if (event.key === 'Enter') saveEdit(editing.value);
@@ -490,27 +497,47 @@ export function RowDetailPanel({
                           data-autofocus
                           autoFocus
                         />
-                        <Button size="xs" disabled={busy} onClick={() => saveEdit(editing.value)}>
-                          Save
-                        </Button>
-                        <Button
+                        <TextInput
                           size="xs"
-                          variant="light"
-                          color="gray"
+                          aria-label={`Why ${column} is being changed`}
+                          placeholder="Why are you changing it? (required)"
+                          value={editing.note}
                           disabled={busy}
-                          onClick={() => saveEdit(null)}
-                        >
-                          Set to none
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="default"
-                          disabled={busy}
-                          onClick={() => setEditing(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </Group>
+                          onChange={(event) =>
+                            setEditing({ ...editing, note: event.currentTarget.value })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') saveEdit(editing.value);
+                            if (event.key === 'Escape') setEditing(null);
+                          }}
+                        />
+                        <Group gap="xs" wrap="nowrap">
+                          <Button
+                            size="xs"
+                            disabled={busy || editing.note.trim() === ''}
+                            onClick={() => saveEdit(editing.value)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="light"
+                            color="gray"
+                            disabled={busy || editing.note.trim() === ''}
+                            onClick={() => saveEdit(null)}
+                          >
+                            Set to none
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="default"
+                            disabled={busy}
+                            onClick={() => setEditing(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
                     </Table.Td>
                   </Table.Tr>
                 ) : (
@@ -543,7 +570,11 @@ export function RowDetailPanel({
                             variant="subtle"
                             disabled={busy || editing !== null}
                             onClick={() =>
-                              setEditing({ column, value: detail.dataRows[0]?.[column] ?? '' })
+                              setEditing({
+                                column,
+                                value: detail.dataRows[0]?.[column] ?? '',
+                                note: '',
+                              })
                             }
                           >
                             Edit
@@ -595,8 +626,8 @@ export function RowDetailPanel({
                       ? {
                           onApprove: (row) => onFindingApprove(group, row),
                           onDecline: (row) => onFindingDecline(group, row),
-                          onApproveWithValue: (row, value) =>
-                            onFindingApproveWithValue(group, row, value),
+                          onApproveWithValue: (row, value, note) =>
+                            onFindingApproveWithValue(group, row, value, note),
                           onDeclineWithReason: (row, reason) =>
                             onFindingDeclineWithReason(group, row, reason),
                           busy,
@@ -616,18 +647,20 @@ export function RowDetailPanel({
             Log
           </Text>
           <Text size="xs" c="dimmed">
-            Problems already resolved on this row. Accepted changes were written to the row;
-            declined ones kept the value it had.
+            Every change made to this row, and every problem declined. Accepted changes came from a
+            rule; changes made by hand carry the note given with them; declined ones kept the value
+            the row had.
           </Text>
-          <Table.ScrollContainer minWidth={560}>
+          <Table.ScrollContainer minWidth={720}>
             <Table withTableBorder verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th w={110}>Result</Table.Th>
+                  <Table.Th w={140}>Result</Table.Th>
                   <Table.Th>Problem</Table.Th>
                   <Table.Th w={130}>Column</Table.Th>
                   <Table.Th>Before</Table.Th>
                   <Table.Th>After</Table.Th>
+                  <Table.Th>Note</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -638,8 +671,11 @@ export function RowDetailPanel({
                   return (
                     <Table.Tr key={entry.key}>
                       <Table.Td>
-                        <Badge variant="light" color={accepted ? 'green' : 'gray'}>
-                          {accepted ? 'Accepted' : 'Declined'}
+                        <Badge
+                          variant="light"
+                          color={entry.byHand ? 'blue' : accepted ? 'green' : 'gray'}
+                        >
+                          {entry.byHand ? 'Changed by hand' : accepted ? 'Accepted' : 'Declined'}
                         </Badge>
                       </Table.Td>
                       <Table.Td>
@@ -653,6 +689,15 @@ export function RowDetailPanel({
                       </Table.Td>
                       <Table.Td>
                         <DiffValue pieces={pieces.after} tone={accepted ? 'added' : 'plain'} />
+                      </Table.Td>
+                      <Table.Td>
+                        <Text
+                          size="sm"
+                          c={entry.note === null ? 'dimmed' : undefined}
+                          style={{ wordBreak: 'break-word' }}
+                        >
+                          {entry.note ?? '—'}
+                        </Text>
                       </Table.Td>
                     </Table.Tr>
                   );

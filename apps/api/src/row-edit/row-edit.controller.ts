@@ -49,6 +49,8 @@ function readTable(value: string): LegacySourceTable {
 interface EditBody {
   readonly column: string;
   readonly value: string | null;
+  /** Why the value is being changed, trimmed. Never empty. */
+  readonly note: string;
 }
 
 /**
@@ -65,13 +67,17 @@ interface EditBody {
  * not a no-op. `null` is how "clear this field" is said (1.2.13's "a blank box
  * is an answer"), so it is accepted and distinct from omitting the field
  * entirely.
+ *
+ * `note` is required and may not be blank. A rule's change is explained by the
+ * rule that made it; a hand edit has no rule behind it, so what the human says
+ * about it is the only explanation the log (1.3) will ever have.
  */
 function readEditBody(body: unknown): EditBody {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new BadRequestException('a body of { column, value } is required');
+    throw new BadRequestException('a body of { column, value, note } is required');
   }
 
-  const { column, value } = body as Record<string, unknown>;
+  const { column, value, note } = body as Record<string, unknown>;
 
   if (typeof column !== 'string' || column.length === 0) {
     throw new BadRequestException('column must be a non-empty string');
@@ -85,7 +91,11 @@ function readEditBody(body: unknown): EditBody {
     throw new BadRequestException('value must be a string, or null to clear the column');
   }
 
-  return { column, value };
+  if (typeof note !== 'string' || note.trim().length === 0) {
+    throw new BadRequestException('a note is required: say why the value is being changed by hand');
+  }
+
+  return { column, value, note: note.trim() };
 }
 
 /**
@@ -124,12 +134,12 @@ export class RowEditController {
     @Body() body: unknown,
   ): Promise<RowEditResponse> {
     const validTable = readTable(table);
-    const { column, value } = readEditBody(body);
+    const { column, value, note } = readEditBody(body);
 
     let report: RowEditReport | null;
 
     try {
-      report = await this.rowEdit.edit(validTable, legacyId, column, value);
+      report = await this.rowEdit.edit(validTable, legacyId, column, value, note);
     } catch (error) {
       if (error instanceof UnknownColumnError) {
         throw new BadRequestException(error.message);
