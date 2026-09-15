@@ -281,9 +281,8 @@ export function RowsPage() {
     state: stateFilter === 'all' ? undefined : stateFilter,
   };
 
-  /** Import is a patient action (2.6): checkboxes and Import show only on the Patient tab, and only while the filter can show clean rows. */
-  const importable =
-    tableFilter === 'patient' && (stateFilter === 'all' || stateFilter === 'clean');
+  /** Checkboxes, Select all and Import show only on Patient + Import clean, where every row is importable. */
+  const importable = tableFilter === 'patient' && stateFilter === 'clean';
   /** How many Import clean rows the current list holds, loaded or not — what Select all selects. */
   const [cleanTotal, setCleanTotal] = useState(0);
   const [selectingAll, setSelectingAll] = useState(false);
