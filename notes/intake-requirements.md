@@ -313,8 +313,10 @@ Free text is never parsed into answers (I26, I29): `glp1_current`,
 
 - Individual: an Import button on each Import clean patient row →
   `POST /rows/patient/:legacyId/import`.
-- Bulk: a checkbox on each Import clean patient row, select-all over the loaded
-  clean rows, **Import selected** → `POST /rows/import` `{ legacyIds }`.
+- Bulk, on the Patient tab only: a checkbox before each Import clean row, a
+  **Select all** checkbox in the list header ticking every Import clean row the
+  list holds (loaded or not), **Import selected** → `POST /rows/import`
+  `{ legacyIds }`. Changing a filter clears the selection.
 - Bulk runs each row in its own transaction: one bad row never blocks the rest.
 - Response per row: `{ legacyId, imported: true, patientId, intakeStatus }` or
   `{ legacyId, imported: false, errors: [{ field, value, reason }] }`.

@@ -3,6 +3,7 @@ import {
   Accordion,
   Alert,
   Badge,
+  Box,
   Button,
   Checkbox,
   Code,
@@ -12,7 +13,6 @@ import {
   SegmentedControl,
   Stack,
   Text,
-  TextInput,
   Title,
 } from '@mantine/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -27,7 +27,7 @@ import type {
 import { AppNav } from '../components/AppNav';
 import { ImportFailureList } from '../components/ImportFailureList';
 import { RowDetailPanel } from '../components/RowDetailPanel';
-import { getStoredStaffName, setStoredStaffName } from '../staffName';
+import { getStoredStaffName } from '../staffName';
 
 type RequestState =
   | { kind: 'loading' }
@@ -71,6 +71,18 @@ const FETCH_SIZE = 100;
  * starts. Roughly a screenful, so the rows arrive before they are looked at.
  */
 const PREFETCH_WITHIN = 20;
+
+/** Page size when Select all collects every clean row's id — the backend's own `ROWS_MAX_LIMIT`. */
+const SELECT_ALL_PAGE = 500;
+
+/** Width of the leading checkbox cell on each row. */
+const CHECKBOX_CELL = 40;
+
+/**
+ * Left inset of every checkbox, header and rows alike, in px. A row's checkbox
+ * sits inside the accordion item's 1px border, so its own inset is one less.
+ */
+const CHECKBOX_INSET = 17;
 
 /** A stable empty array, so the virtualiser is not rebuilt on every render. */
 const EMPTY_ROWS: RowListEntry[] = [];
@@ -133,8 +145,6 @@ export function RowsPage() {
 
   // --- B7: import (2.6) ------------------------------------------------
 
-  /** The staff name every import's audit event is written under (2.6) — the same `localStorage` key the review screen's reviewer name uses (2.4), so entering it once on either screen carries over. */
-  const [staffName, setStaffName] = useState(() => getStoredStaffName());
   /** Patient legacy ids ticked for bulk import — only ever holds ids of rows currently shown as Import clean. */
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   /** Legacy ids with an import in flight — per-row spinners, and the one thing "Import selected" also checks before starting another run. */
@@ -144,9 +154,9 @@ export function RowsPage() {
     new Map(),
   );
 
-  function onStaffNameChange(value: string) {
-    setStaffName(value);
-    setStoredStaffName(value);
+  /** The actor on an import's audit event (2.6): the name entered on the review screen, if any. There is no login to name anyone better. */
+  function importActor(): string {
+    return getStoredStaffName().trim() || 'staff';
   }
 
   function toggleSelected(legacyId: string, checked: boolean) {
@@ -159,7 +169,10 @@ export function RowsPage() {
   }
 
   /** One row done importing, either way (2.6): success drops it out of the selection and its failure list; a failure keeps it selected and records what went wrong. */
-  function settleImport(legacyId: string, outcome: { imported: true } | { imported: false; errors: readonly FieldError[] }) {
+  function settleImport(
+    legacyId: string,
+    outcome: { imported: true } | { imported: false; errors: readonly FieldError[] },
+  ) {
     setImporting((previous) => {
       const next = new Set(previous);
       next.delete(legacyId);
@@ -187,8 +200,7 @@ export function RowsPage() {
 
   /** The individual Import button (2.6: `POST /rows/patient/:legacyId/import`). */
   function onImportOne(legacyId: string) {
-    const actor = staffName.trim();
-    if (actor === '') return;
+    const actor = importActor();
 
     setImporting((previous) => new Set(previous).add(legacyId));
 
@@ -216,9 +228,9 @@ export function RowsPage() {
 
   /** "Import selected" (2.6: `POST /rows/import`) — one request for every ticked row, each in its own transaction on the backend, so one bad row never blocks the rest. */
   function onImportSelected() {
-    const actor = staffName.trim();
+    const actor = importActor();
     const legacyIds = [...selected];
-    if (actor === '' || legacyIds.length === 0) return;
+    if (legacyIds.length === 0) return;
 
     setImporting((previous) => new Set([...previous, ...legacyIds]));
 
@@ -227,9 +239,7 @@ export function RowsPage() {
         for (const result of results) {
           settleImport(
             result.legacyId,
-            result.imported
-              ? { imported: true }
-              : { imported: false, errors: result.errors },
+            result.imported ? { imported: true } : { imported: false, errors: result.errors },
           );
         }
         const imported = results.filter((result) => result.imported).length;
@@ -252,6 +262,25 @@ export function RowsPage() {
     table: tableFilter === 'all' ? undefined : tableFilter,
     state: stateFilter === 'all' ? undefined : stateFilter,
   };
+
+  /** Import is a patient action (2.6): checkboxes and Import show only on the Patient tab, and only while the filter can show clean rows. */
+  const importable =
+    tableFilter === 'patient' && (stateFilter === 'all' || stateFilter === 'clean');
+  /** How many Import clean rows the current list holds, loaded or not — what Select all selects. */
+  const [cleanTotal, setCleanTotal] = useState(0);
+  const [selectingAll, setSelectingAll] = useState(false);
+
+  useEffect(() => {
+    if (!importable) return;
+
+    const controller = new AbortController();
+
+    getRows({ table: 'patient', state: 'clean', offset: 0, limit: 1 }, controller.signal)
+      .then((response) => setCleanTotal(response.total))
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [tableFilter, stateFilter, attempt]);
 
   // The first window. Runs again whenever a filter changes or the list is
   // re-read after a press, and always starts from the top — a different filter
@@ -322,13 +351,22 @@ export function RowsPage() {
     setAttempt((n) => n + 1);
   }
 
+  // A different filter is a different list, so nothing stays selected that the
+  // new list might not show.
+  function clearSelection() {
+    setSelected(new Set());
+    setImportFailures(new Map());
+  }
+
   function onTableFilterChange(value: string) {
     setState({ kind: 'loading' });
+    clearSelection();
     setTableFilter(value as TableFilter);
   }
 
   function onStateFilterChange(value: string) {
     setState({ kind: 'loading' });
+    clearSelection();
     setStateFilter(value as StateFilter);
   }
 
@@ -347,24 +385,43 @@ export function RowsPage() {
    */
   const rows = state.kind === 'loaded' ? state.rows : EMPTY_ROWS;
 
-  // Select-all is over what is loaded, not the whole filtered set (1.6.1's
-  // scroll-as-you-go universe has no fixed size to select "all" of) — 2.6
-  // says exactly this: "select-all over the loaded clean patient rows".
-  const loadedCleanPatientIds = rows
-    .filter((row) => row.table === 'patient' && row.state === 'clean')
-    .map((row) => row.legacyId);
-  const allLoadedCleanSelected =
-    loadedCleanPatientIds.length > 0 && loadedCleanPatientIds.every((id) => selected.has(id));
+  // Select all ticks every checkbox this list has, including rows not yet
+  // scrolled into view: their ids are fetched, so they arrive already ticked.
+  const allSelected = cleanTotal > 0 && selected.size >= cleanTotal;
+
+  async function cleanPatientIds(): Promise<string[]> {
+    const ids: string[] = [];
+
+    for (let offset = 0; ; offset += SELECT_ALL_PAGE) {
+      const page = await getRows({
+        table: 'patient',
+        state: 'clean',
+        offset,
+        limit: SELECT_ALL_PAGE,
+      });
+      ids.push(...page.rows.map((row) => row.legacyId));
+
+      if (page.rows.length === 0 || ids.length >= page.total) return ids;
+    }
+  }
 
   function onSelectAllChange(checked: boolean) {
-    setSelected((previous) => {
-      const next = new Set(previous);
-      for (const id of loadedCleanPatientIds) {
-        if (checked) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
+    if (!checked) {
+      setSelected(new Set());
+      return;
+    }
+
+    setSelectingAll(true);
+
+    cleanPatientIds()
+      .then((ids) => {
+        setSelected(new Set(ids));
+        setCleanTotal(ids.length);
+      })
+      .catch((cause: unknown) => {
+        setLastOutcome(cause instanceof ApiError ? cause.message : String(cause));
+      })
+      .finally(() => setSelectingAll(false));
   }
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -425,35 +482,6 @@ export function RowsPage() {
           />
         </Group>
 
-        {/*
-          B7 (2.6): individual and bulk import share this one staff name — an
-          import's audit event needs an actor exactly as review's start/decide
-          do, and 2.6 names no UI of its own for it, so this reuses 2.4's own
-          localStorage-held reviewer name rather than asking twice.
-        */}
-        <Group gap="lg" wrap="wrap" align="flex-end">
-          <TextInput
-            label="Your name"
-            placeholder="Staff name"
-            description="Sent as the actor on every import."
-            value={staffName}
-            onChange={(event) => onStaffNameChange(event.currentTarget.value)}
-          />
-          <Checkbox
-            label="Select all loaded clean patient rows"
-            checked={allLoadedCleanSelected}
-            disabled={loadedCleanPatientIds.length === 0}
-            onChange={(event) => onSelectAllChange(event.currentTarget.checked)}
-          />
-          <Button
-            onClick={onImportSelected}
-            disabled={selected.size === 0 || staffName.trim() === ''}
-            loading={importing.size > 0 && [...selected].some((id) => importing.has(id))}
-          >
-            Import selected{selected.size > 0 ? ` (${selected.size})` : ''}
-          </Button>
-        </Group>
-
         {state.kind === 'loading' && (
           <Group gap="sm">
             <Loader size="sm" />
@@ -480,6 +508,29 @@ export function RowsPage() {
           </Text>
         )}
 
+        {/* The list header: Select all sits in the same cell as the row checkboxes below. */}
+        {importable && state.kind === 'loaded' && state.rows.length > 0 && (
+          <Group justify="space-between" wrap="nowrap" gap={0} pr="md">
+            <Group gap="xs" wrap="nowrap" pl={CHECKBOX_INSET}>
+              <Checkbox
+                label={`Select all (${cleanTotal})`}
+                checked={allSelected}
+                indeterminate={selected.size > 0 && !allSelected}
+                disabled={cleanTotal === 0 || selectingAll}
+                onChange={(event) => onSelectAllChange(event.currentTarget.checked)}
+              />
+              {selectingAll && <Loader size="xs" />}
+            </Group>
+            <Button
+              onClick={onImportSelected}
+              disabled={selected.size === 0}
+              loading={importing.size > 0 && [...selected].some((id) => importing.has(id))}
+            >
+              Import selected{selected.size > 0 ? ` (${selected.size})` : ''}
+            </Button>
+          </Group>
+        )}
+
         {state.kind === 'loaded' && state.rows.length > 0 && (
           <div ref={scrollRef} style={{ height: LIST_HEIGHT, overflowY: 'auto' }}>
             <Accordion variant="separated" keepMounted={false}>
@@ -487,7 +538,7 @@ export function RowsPage() {
               {/* Keyed by table + legacy id, which cannot repeat within a table on this list. */}
               {visible.map((item) => {
                 const row = rows[item.index];
-                const importClean = row.table === 'patient' && row.state === 'clean';
+                const importClean = importable && row.table === 'patient' && row.state === 'clean';
                 const failures = importFailures.get(row.legacyId);
 
                 return (
@@ -498,44 +549,49 @@ export function RowsPage() {
                     data-index={item.index}
                   >
                     {/*
-                      A leading toolbar rather than nested inside
-                      `Accordion.Control` — that renders as a `<button>`, and
-                      a checkbox or a second button inside one is both invalid
-                      HTML and would double as the accordion's own
-                      expand/collapse toggle (2.6's Import button and
-                      checkbox are their own presses, not this row's).
+                      Checkbox and Import sit beside `Accordion.Control`, not
+                      inside it: the control is a `<button>`, and a press on
+                      either must not also expand the row. Every row on the
+                      Patient tab keeps the checkbox cell so the columns line up.
                     */}
-                    {importClean && (
-                      <Group gap="xs" px="md" pt="xs">
-                        <Checkbox
-                          aria-label={`Select ${row.legacyId} for import`}
-                          checked={selected.has(row.legacyId)}
-                          onChange={(event) =>
-                            toggleSelected(row.legacyId, event.currentTarget.checked)
-                          }
-                        />
-                        <Button
-                          size="xs"
-                          variant="light"
-                          loading={importing.has(row.legacyId)}
-                          disabled={staffName.trim() === ''}
-                          onClick={() => onImportOne(row.legacyId)}
-                        >
-                          Import
-                        </Button>
-                      </Group>
-                    )}
-                    <Accordion.Control>
-                      <Group justify="space-between" wrap="nowrap" pr="sm">
-                        <Group gap="xs" wrap="nowrap">
-                          <Text fw={600}>{row.table}</Text>
-                          <Code>{row.legacyId}</Code>
+                    <Group gap={0} wrap="nowrap">
+                      {importable && (
+                        <Box w={CHECKBOX_CELL} pl={CHECKBOX_INSET - 1}>
+                          {importClean && (
+                            <Checkbox
+                              aria-label={`Select ${row.legacyId} for import`}
+                              checked={selected.has(row.legacyId)}
+                              onChange={(event) =>
+                                toggleSelected(row.legacyId, event.currentTarget.checked)
+                              }
+                            />
+                          )}
+                        </Box>
+                      )}
+                      <Accordion.Control style={{ flex: 1, minWidth: 0 }}>
+                        <Group justify="space-between" wrap="nowrap" pr="sm">
+                          <Group gap="xs" wrap="nowrap">
+                            <Text fw={600}>{row.table}</Text>
+                            <Code>{row.legacyId}</Code>
+                          </Group>
+                          <Badge variant="light" color={STATE_COLORS[row.state]}>
+                            {STATE_LABELS[row.state]}
+                          </Badge>
                         </Group>
-                        <Badge variant="light" color={STATE_COLORS[row.state]}>
-                          {STATE_LABELS[row.state]}
-                        </Badge>
-                      </Group>
-                    </Accordion.Control>
+                      </Accordion.Control>
+                      {importClean && (
+                        <Box pr="md">
+                          <Button
+                            size="xs"
+                            variant="light"
+                            loading={importing.has(row.legacyId)}
+                            onClick={() => onImportOne(row.legacyId)}
+                          >
+                            Import
+                          </Button>
+                        </Box>
+                      )}
+                    </Group>
                     {/*
                       Shown without needing to expand the row (2.6: failed
                       rows "list each field, its value... and the reason") —
