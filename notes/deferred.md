@@ -10,14 +10,9 @@ README as a stated choice.
   the state machine, and the import logic — are all backend. Test effort goes
   there.
 
-## D5. Retiring a duplicate row
-- The duplicates table records that X duplicates Y, and merges happen as ordinary
-  rule rows on Y. What does not happen is retiring X.
-- Why: legacy rows have no status column. Adding one is a schema change plus a
-  decision about what every other query does with a retired row.
-- What it costs: X stays in the table looking like a live patient. Nothing reads
-  the duplicates table to filter it out yet.
-- What unblocks it: a status on legacy rows, at which point X is set to declined.
+## D5. Retiring a duplicate row — resolved by 1.7.5
+- Unblocked by the stored row rejection of 1.6.6: confirming a patient link
+  rejects X.
 
 ## D4. Re-importing, as a feature
 - The importer ignores any id already in the database. That is the whole of it.

@@ -280,8 +280,7 @@ Scenario: a duplicate needs merging
   And its reason names the duplication
 ```
 
-Retiring X itself is out of scope. Patient rows will gain a status later, and
-only then can X be marked declined — see `deferred.md` D5.
+Recording, confirming, dismissing, merging and retiring X: 1.7.
 
 ---
 
@@ -660,6 +659,89 @@ shape, every change is in it, and a hand edit is legible as a hand edit because
 of the rule id it carries. This is the same move 1.1.12's typed value makes: the
 human's answer enters through the path a rule's answer takes, rather than beside
 it.
+
+---
+
+## 1.7 Duplicates
+
+### 1.7.1 A link names two rows
+
+A link carries both legacy ids and both data-row ids. A legacy id names a row
+without identifying one (1.0.3): two intakes sharing an intake id, or two consent
+events sharing a patient id, are the same legacy id twice.
+
+- v1 of D05 and D06 names the same id twice. All six rules get a v2 that carries
+  row ids; v1 stays registered, inactive (1.1.8).
+- Persisting a link without both row ids fails the run.
+
+### 1.7.2 Apply rules records links
+
+```gherkin
+Scenario: a link is found
+  When Apply rules runs
+  Then each duplicate link is recorded, pending, in the same transaction as the findings
+
+Scenario: the same pair again
+  Given rows A and B are already linked
+  When any rule finds A and B again
+  Then nothing is recorded
+
+Scenario: a dismissed link
+  Given the link between A and B was dismissed
+  When any rule, at any version, finds them again
+  Then nothing is recorded
+```
+
+- One link per pair of rows, whichever rule finds it first.
+- Y is the earlier row in export order — the rules' own convention.
+
+### 1.7.3 Status
+
+`pending` → `confirmed` | `dismissed`. Both final.
+
+### 1.7.4 The duplicates screen
+
+- Lists links, filterable by status and source; pending by default. Virtualised.
+- Each shows source, X, Y and the rule that found it.
+- Expanding shows X and Y side by side, every column, with differing values drawn
+  by `ValueDiff`.
+- Confirm and Dismiss on pending links.
+
+### 1.7.5 Confirming
+
+```gherkin
+Scenario: two patient rows are the same person
+  Given P-450 is linked as a duplicate of P-100
+  When Vamshi confirms the link
+  Then the link is confirmed
+  And P-450 is Import rejected, its reason naming P-100 and the rule
+```
+
+- Patient: X is rejected on the rows screen (1.6.6). Reversible like any rejection.
+- Intake and consent: X and Y share a legacy id, so neither is rejected — a
+  rejection would take both. Acceptance skips the confirmed duplicate data row.
+
+### 1.7.6 Dismissing
+
+The link is dismissed and never recorded again (1.7.2). Neither row changes.
+
+### 1.7.7 Merging
+
+Merge rules M01–M07 fill a column of Y that is empty from a confirmed duplicate X.
+They are ordinary findings on Y, approved like any other (1.1.13).
+
+- Patients only. Columns: `full_name`, `email`, `dob`, `sex`, `bsn`, `phone`, `city`
+  — facts about the person. Not `signup_date`, `source`, `status`, `weight`,
+  `height_cm` — facts about a signup.
+- Two confirmed duplicates of Y holding different values for the column: that row
+  proposes nothing.
+- Not ambiguous.
+
+### 1.7.8 Out of scope
+
+- Chains: X linked to Y where Y is itself the duplicate side of another link is
+  recorded as found and not resolved transitively.
+- Deleting or hiding X's data: never — X stays in its legacy table.
 
 ---
 

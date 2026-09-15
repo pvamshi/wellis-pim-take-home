@@ -309,6 +309,31 @@ outright that people signed up twice with different emails.
 | D05 | Two intakes with the same `intake_id` |
 | D06 | Two consent events identical in patient, type, action, timestamp and version |
 
+**v2 of all six** names both data rows as well as both legacy ids (1.7.1). v1 of
+D05 and D06 named the same legacy id twice — two intakes share an intake id, two
+consent events share a patient id — so the link could not say which row is X.
+
+---
+
+## Merges
+
+Fill a column of Y that is empty from a confirmed duplicate X of it (1.7.7).
+Patients only. Facts about the person merge; facts about a signup (`signup_date`,
+`source`, `status`, `weight`, `height_cm`) do not.
+
+| id | Column | Proposes | ✱ |
+|---|---|---|---|
+| M01 | `full_name` | X's value, when Y's is empty | |
+| M02 | `email` | X's value, when Y's is empty | |
+| M03 | `dob` | X's value, when Y's is empty | |
+| M04 | `sex` | X's value, when Y's is empty | |
+| M05 | `bsn` | X's value, when Y's is empty | |
+| M06 | `phone` | X's value, when Y's is empty | |
+| M07 | `city` | X's value, when Y's is empty | |
+
+Two confirmed duplicates of Y holding different values for the column: that row
+proposes nothing.
+
 ---
 
 ## One constraint this catalogue cannot satisfy

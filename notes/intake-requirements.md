@@ -268,7 +268,8 @@ BMI: `weight_kg / (height_cm / 100)²`, rounded half-up to 1 dp.
 
 - Row state is Import clean: no pending finding, not rejected, not imported.
 - The legacy id names exactly one data row (1.0.3).
-- Not the duplicate side of a `duplicate` link (1.1.13).
+- Not the duplicate side of a confirmed duplicate link (1.7).
+- Consent: data rows that are the duplicate side of a confirmed link are skipped.
 
 ### Mapping
 
