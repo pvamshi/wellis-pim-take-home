@@ -612,7 +612,17 @@ describe('declining one rule row', () => {
     // (legacyId, ruleId, column) and the version is no part of that check.
     expect(status).toBe(200);
     expect(body.rules).toEqual([
-      { ruleId: 'R-FOREVER', version: 2, found: 3, declined: 1, repeated: 0, written: 2 },
+      {
+        ruleId: 'R-FOREVER',
+        version: 2,
+        found: 3,
+        declined: 1,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     // No pending row for P-0455 under version 2 — the row a human crossed out
@@ -843,8 +853,28 @@ describe('declining one rule row', () => {
     // A later run makes the same point where it counts: rule A is blocked at
     // P-1 and rule B is not, at the identical legacy id and column.
     expect(body.rules).toEqual([
-      { ruleId: 'R-SCOPE-A', version: 2, found: 3, declined: 1, repeated: 0, written: 2 },
-      { ruleId: 'R-SCOPE-B', version: 2, found: 3, declined: 0, repeated: 0, written: 3 },
+      {
+        ruleId: 'R-SCOPE-A',
+        version: 2,
+        found: 3,
+        declined: 1,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
+      {
+        ruleId: 'R-SCOPE-B',
+        version: 2,
+        found: 3,
+        declined: 0,
+        repeated: 0,
+        written: 3,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     const afterRun = await decisionsOf(patientRules);

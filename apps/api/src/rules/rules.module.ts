@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DuplicatesModule } from '../duplicates/duplicates.module';
 import { LegacyModule } from '../legacy/legacy.module';
 import { RowsModule } from '../rows/rows.module';
 import { RowDetailService } from './row-detail.service';
@@ -47,7 +48,10 @@ import { Rule } from './rule.entity';
  * that turns a run into rule rows (1.1.3) — so it is exported for the same
  * reason. It writes the three per-source rule tables, which `LegacyModule`
  * declares, so this module imports that one; the dependency only runs this way,
- * because nothing under `legacy/` imports anything from `rules/`.
+ * because nothing under `legacy/` imports anything from `rules/`. It now writes
+ * `duplicate` too, in the same transaction, as the write path behind 1.7.2 —
+ * which is why this module also imports `DuplicatesModule`, the same explicit
+ * ownership the `LegacyModule` import already states.
  *
  * `RuleApprovalsService` is the rest of that same sentence: 1.1.3 puts the
  * apply transaction in the layer that persists findings, so approving lives
@@ -130,7 +134,12 @@ import { Rule } from './rule.entity';
  * service here is.
  */
 @Module({
-  imports: [LegacyModule, RowsModule, TypeOrmModule.forFeature([Rule, RuleVersion])],
+  imports: [
+    LegacyModule,
+    RowsModule,
+    DuplicatesModule,
+    TypeOrmModule.forFeature([Rule, RuleVersion]),
+  ],
   providers: [
     RuleVersionsService,
     RuleRunnerService,

@@ -91,6 +91,19 @@ export interface DuplicateFinding {
 
   /** Y — the one that survives. */
   canonicalLegacyId: string;
+
+  /**
+   * X's physical row — the generated `id` every legacy entity keeps, "ours,
+   * not theirs" — because `duplicateLegacyId` alone may name more than one row
+   * (1.0.3, 1.7.1). Optional only so D01–D06 v1, which still name the same
+   * legacy id twice, keep compiling; by the time `RuleFindingsService.persist`
+   * writes a link both this and `canonicalRowId` are required, and their
+   * absence fails the whole run (1.7.1).
+   */
+  duplicateRowId?: string;
+
+  /** Y's physical row (1.7.1) — see `duplicateRowId`. */
+  canonicalRowId?: string;
 }
 
 /**

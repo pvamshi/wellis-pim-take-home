@@ -641,7 +641,17 @@ describe('excluding a row and revising the rule', () => {
     // exactly the row that exposed the bug.
     expect(status).toBe(200);
     expect(body.rules).toEqual([
-      { ruleId: 'R-ELIGIBLE', version: 2, found: 3, declined: 0, repeated: 0, written: 3 },
+      {
+        ruleId: 'R-ELIGIBLE',
+        version: 2,
+        found: 3,
+        declined: 0,
+        repeated: 0,
+        written: 3,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     // Version 1's row is still there beside version 2's at the same legacy id
@@ -703,7 +713,17 @@ describe('excluding a row and revising the rule', () => {
     // blocked forever (1.2.9) and the ticked one is proposed on again, which is
     // the whole of what the checkbox buys.
     expect(body.rules).toEqual([
-      { ruleId: 'R-CONTRAST', version: 2, found: 3, declined: 1, repeated: 0, written: 2 },
+      {
+        ruleId: 'R-CONTRAST',
+        version: 2,
+        found: 3,
+        declined: 1,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
     expect(await decisionsOf(patientRules)).toEqual([
       ['P-0817', 'R-CONTRAST', 1, 'phone', 'pending', null],

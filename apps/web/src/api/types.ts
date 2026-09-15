@@ -204,7 +204,8 @@ export interface ReviseFromRowReport {
  *
  * The four counters reconcile by construction — `found = declined + repeated +
  * written` — so a run is checked by comparing counts rather than by tracing
- * rows.
+ * rows. The three link counters reconcile the same way: `linksFound =
+ * linksRecorded + linksSkipped` (1.7.2).
  */
 export interface ApplyRulesRuleLine {
   readonly ruleId: string;
@@ -218,6 +219,12 @@ export interface ApplyRulesRuleLine {
   readonly repeated: number;
   /** Written as new pending rows. */
   readonly written: number;
+  /** Duplicate links the rule returned (1.7.2). */
+  readonly linksFound: number;
+  /** Written as new pending links. */
+  readonly linksRecorded: number;
+  /** Dropped because that pair of rows is already linked, in any status (1.7.2). */
+  readonly linksSkipped: number;
 }
 
 /**

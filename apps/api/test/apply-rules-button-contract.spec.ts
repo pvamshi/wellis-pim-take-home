@@ -401,7 +401,17 @@ describe('the “Apply rules” button, pressed by the screen’s own client', (
     // persistence layer wrote what it found (1.1.3). A route that answered 200
     // without doing either would pass a call count and fail this.
     expect(report.rules).toEqual([
-      { ruleId: 'R-BTN-RUN', version: 1, found: 2, declined: 0, repeated: 0, written: 2 },
+      {
+        ruleId: 'R-BTN-RUN',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
     expect(report.totals).toEqual({
       versionsRun: 1,

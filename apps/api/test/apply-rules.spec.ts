@@ -351,8 +351,28 @@ describe('POST /rules/apply', () => {
     // persistence layer wrote what they found (1.1.3). Neither half alone
     // produces these rows.
     expect(body.rules).toEqual([
-      { ruleId: 'R-E2E-INTAKE', version: 1, found: 1, declined: 0, repeated: 0, written: 1 },
-      { ruleId: 'R-E2E-PHONE', version: 1, found: 2, declined: 0, repeated: 0, written: 2 },
+      {
+        ruleId: 'R-E2E-INTAKE',
+        version: 1,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
+      {
+        ruleId: 'R-E2E-PHONE',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     // Every stored value came from a real row the rule read, and every row is
@@ -407,7 +427,17 @@ describe('POST /rules/apply', () => {
     // Version 1's code is the email rule and version 2's is the phone rule, so
     // the rows say which code ran and not merely which key was tagged (1.2.10).
     expect(body.rules).toEqual([
-      { ruleId: 'R-ACTIVE', version: 2, found: 2, declined: 0, repeated: 0, written: 2 },
+      {
+        ruleId: 'R-ACTIVE',
+        version: 2,
+        found: 2,
+        declined: 0,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     const rows = await storedRows('legacy_patient_rule');
@@ -477,7 +507,17 @@ describe('POST /rules/apply', () => {
     // nothing rewritten.
     expect(second.status).toBe(200);
     expect(second.body.rules).toEqual([
-      { ruleId: 'R-TWICE', version: 1, found: 2, declined: 0, repeated: 2, written: 0 },
+      {
+        ruleId: 'R-TWICE',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 2,
+        written: 0,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
     expect(await storedRows('legacy_patient_rule')).toEqual(afterFirst);
   });
@@ -510,7 +550,17 @@ describe('POST /rules/apply', () => {
     // so the second press found it no longer — and P-9, which did not exist
     // during the first press, was found and written.
     expect(second.body.rules).toEqual([
-      { ruleId: 'R-CURRENT', version: 1, found: 2, declined: 0, repeated: 1, written: 1 },
+      {
+        ruleId: 'R-CURRENT',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 1,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     const rows = await storedRows('legacy_patient_rule');
@@ -549,7 +599,17 @@ describe('POST /rules/apply', () => {
     // 1.2.9, reached over HTTP rather than by calling the service directly: the
     // skip is on the endpoint's path, and the version is not part of the check.
     expect(body.rules).toEqual([
-      { ruleId: 'R-DECLINED', version: 2, found: 2, declined: 1, repeated: 0, written: 1 },
+      {
+        ruleId: 'R-DECLINED',
+        version: 2,
+        found: 2,
+        declined: 1,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     const rows = await storedRows('legacy_patient_rule');
@@ -620,9 +680,39 @@ describe('POST /rules/apply', () => {
     // All three outcomes are represented, so the reconciliation has something
     // to reconcile rather than being 0 = 0 + 0 + 0.
     expect(first.body.rules).toEqual([
-      { ruleId: 'R-REC-EMAIL', version: 1, found: 2, declined: 0, repeated: 0, written: 2 },
-      { ruleId: 'R-REC-INTAKE', version: 1, found: 1, declined: 0, repeated: 0, written: 1 },
-      { ruleId: 'R-REC-PHONE', version: 1, found: 2, declined: 1, repeated: 0, written: 1 },
+      {
+        ruleId: 'R-REC-EMAIL',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 0,
+        written: 2,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
+      {
+        ruleId: 'R-REC-INTAKE',
+        version: 1,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
+      {
+        ruleId: 'R-REC-PHONE',
+        version: 1,
+        found: 2,
+        declined: 1,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
     expect(reconciles(first.body)).toBe(true);
     expect(first.body.totals).toEqual({

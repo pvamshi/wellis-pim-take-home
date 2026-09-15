@@ -15,8 +15,11 @@ import { Duplicate } from './duplicate.entity';
  * schema sync, so without this module the table never exists.
  *
  * `TypeOrmModule` is re-exported so the repository is injectable from any
- * module that imports this one. There is no provider: nothing writes duplicates
- * yet, and whoever writes the duplicate rule brings its write path with it.
+ * module that imports this one. There is no provider of its own:
+ * `RuleFindingsService` (`rules/rule-findings.service.ts`) is what writes
+ * `duplicate` now, in the same transaction as the findings it writes
+ * alongside (1.7.2) — which is why `RulesModule` imports this one rather than
+ * a service living here.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([Duplicate])],

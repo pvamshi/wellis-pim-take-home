@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { DataSource, type Repository } from 'typeorm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
+import { Duplicate } from '../src/duplicates/duplicate.entity';
 import { LegacyConsent } from '../src/legacy/legacy-consent.entity';
 import { LegacyIntake } from '../src/legacy/legacy-intake.entity';
 import { LegacyPatient } from '../src/legacy/legacy-patient.entity';
@@ -14,11 +15,12 @@ import {
 } from '../src/legacy/legacy-rule.entity';
 import type { LegacySourceTable } from '../src/legacy/legacy-source-table';
 import {
+  DuplicateLinkMissingRowIdError,
   RuleFindingsService,
   UnknownSourceTableError,
   type RuleFindingsReport,
 } from '../src/rules/rule-findings.service';
-import type { RuleUpdate } from '../src/rules/rule-contract';
+import type { DuplicateFinding, RuleUpdate } from '../src/rules/rule-contract';
 import type { RuleRunEntry, RuleRunResult } from '../src/rules/rule-runner.service';
 import { RuleVersion } from '../src/rules/rule-version.entity';
 import { Rule } from '../src/rules/rule.entity';
@@ -51,14 +53,31 @@ function found(
   return { table, legacyId, column, prev, next };
 }
 
+/**
+ * One duplicate finding, written the way `DuplicateFinding` defines it
+ * (1.7.1). Row ids are optional parameters, not just optional fields, so a
+ * test can build a finding missing one on purpose (T3.7-style, for
+ * `DuplicateLinkMissingRowIdError`).
+ */
+function duplicate(
+  table: LegacySourceTable,
+  duplicateLegacyId: string,
+  canonicalLegacyId: string,
+  duplicateRowId?: string,
+  canonicalRowId?: string,
+): DuplicateFinding {
+  return { table, duplicateLegacyId, canonicalLegacyId, duplicateRowId, canonicalRowId };
+}
+
 /** One rule version's response, tagged with the key that produced it. */
 function entry(
   ruleId: string,
   version: number,
   updates: RuleUpdate[],
   ambiguity = false,
+  duplicates: DuplicateFinding[] = [],
 ): RuleRunEntry {
-  return { ruleId, version, response: { ambiguity, updates } };
+  return { ruleId, version, response: { ambiguity, updates, duplicates } };
 }
 
 /** The rule rows a table holds, in an order no assertion depends on. */
@@ -68,9 +87,20 @@ async function rowsOf(repository: Repository<LegacyRuleRow>): Promise<LegacyRule
   });
 }
 
+/** The links `duplicate` holds, in an order no assertion depends on. */
+async function linksOf(repository: Repository<Duplicate>): Promise<Duplicate[]> {
+  return await repository.find({
+    order: { sourceTable: 'ASC', duplicateRowId: 'ASC', canonicalRowId: 'ASC' },
+  });
+}
+
 /** What every counter in a report must add up to, by construction. */
 function reconciles(report: RuleFindingsReport): boolean {
-  return report.every((line) => line.found === line.declined + line.repeated + line.written);
+  return report.every(
+    (line) =>
+      line.found === line.declined + line.repeated + line.written &&
+      line.linksFound === line.linksRecorded + line.linksSkipped,
+  );
 }
 
 describe('persisting a run as rule rows', () => {
@@ -82,6 +112,7 @@ describe('persisting a run as rule rows', () => {
   let patientRules: Repository<LegacyPatientRule>;
   let intakeRules: Repository<LegacyIntakeRule>;
   let consentRules: Repository<LegacyConsentRule>;
+  let duplicates: Repository<Duplicate>;
 
   beforeAll(async () => {
     database = createTemporaryDatabase();
@@ -99,6 +130,7 @@ describe('persisting a run as rule rows', () => {
     patientRules = dataSource.getRepository(LegacyPatientRule);
     intakeRules = dataSource.getRepository(LegacyIntakeRule);
     consentRules = dataSource.getRepository(LegacyConsentRule);
+    duplicates = dataSource.getRepository(Duplicate);
   });
 
   afterAll(async () => {
@@ -117,6 +149,7 @@ describe('persisting a run as rule rows', () => {
     await dataSource.query(`DELETE FROM legacy_patient_rule`);
     await dataSource.query(`DELETE FROM legacy_intake_rule`);
     await dataSource.query(`DELETE FROM legacy_consent_rule`);
+    await dataSource.query(`DELETE FROM duplicate`);
     await dataSource.query(`DELETE FROM rule_version`);
     await dataSource.query(`DELETE FROM rule`);
     await dataSource.query(`DELETE FROM legacy_patient`);
@@ -145,7 +178,17 @@ describe('persisting a run as rule rows', () => {
       },
     ]);
     expect(report).toEqual([
-      { ruleId: 'R7', version: 2, found: 1, declined: 0, repeated: 0, written: 1 },
+      {
+        ruleId: 'R7',
+        version: 2,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -204,7 +247,17 @@ describe('persisting a run as rule rows', () => {
       },
     ]);
     expect(report).toEqual([
-      { ruleId: 'R7', version: 2, found: 1, declined: 1, repeated: 0, written: 0 },
+      {
+        ruleId: 'R7',
+        version: 2,
+        found: 1,
+        declined: 1,
+        repeated: 0,
+        written: 0,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -270,7 +323,17 @@ describe('persisting a run as rule rows', () => {
       (await rowsOf(intakeRules)).map((row) => [row.legacyId, row.column, row.status]),
     ).toEqual([['X-1', 'weight', 'pending']]);
     expect(report).toEqual([
-      { ruleId: 'R7', version: 1, found: 1, declined: 0, repeated: 0, written: 1 },
+      {
+        ruleId: 'R7',
+        version: 1,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -300,7 +363,17 @@ describe('persisting a run as rule rows', () => {
       [2, 'pending', '+31 6 12345678'],
     ]);
     expect(report).toEqual([
-      { ruleId: 'R7', version: 2, found: 1, declined: 0, repeated: 0, written: 1 },
+      {
+        ruleId: 'R7',
+        version: 2,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -348,7 +421,17 @@ describe('persisting a run as rule rows', () => {
       },
     ]);
     expect(second).toEqual([
-      { ruleId: 'R7', version: 1, found: 2, declined: 0, repeated: 2, written: 0 },
+      {
+        ruleId: 'R7',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 2,
+        written: 0,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -377,7 +460,17 @@ describe('persisting a run as rule rows', () => {
       },
     ]);
     expect(report).toEqual([
-      { ruleId: 'R-CITY', version: 1, found: 2, declined: 0, repeated: 1, written: 1 },
+      {
+        ruleId: 'R-CITY',
+        version: 1,
+        found: 2,
+        declined: 0,
+        repeated: 1,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
   });
 
@@ -448,7 +541,17 @@ describe('persisting a run as rule rows', () => {
 
     expect(counted?.rows).toBe(5000);
     expect(report).toEqual([
-      { ruleId: 'R-BULK', version: 1, found: 5000, declined: 0, repeated: 0, written: 5000 },
+      {
+        ruleId: 'R-BULK',
+        version: 1,
+        found: 5000,
+        declined: 0,
+        repeated: 0,
+        written: 5000,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     // And the rows either side of the chunk boundary carry their own values,
@@ -508,8 +611,28 @@ describe('persisting a run as rule rows', () => {
     // runner keeps them (a rule that matched nothing is a fact about the run),
     // and so does this. The three outcomes account for every finding.
     expect(report).toEqual([
-      { ruleId: 'R-MIXED', version: 4, found: 3, declined: 1, repeated: 1, written: 1 },
-      { ruleId: 'R-QUIET', version: 1, found: 0, declined: 0, repeated: 0, written: 0 },
+      {
+        ruleId: 'R-MIXED',
+        version: 4,
+        found: 3,
+        declined: 1,
+        repeated: 1,
+        written: 1,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
+      {
+        ruleId: 'R-QUIET',
+        version: 1,
+        found: 0,
+        declined: 0,
+        repeated: 0,
+        written: 0,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
     expect(reconciles(report)).toBe(true);
   });
@@ -585,7 +708,17 @@ describe('persisting a run as rule rows', () => {
     // The comparison has something to compare: findings were written against
     // the very columns of the very rows seeded above.
     expect(report).toEqual([
-      { ruleId: 'R-WRITES', version: 1, found: 3, declined: 0, repeated: 0, written: 3 },
+      {
+        ruleId: 'R-WRITES',
+        version: 1,
+        found: 3,
+        declined: 0,
+        repeated: 0,
+        written: 3,
+        linksFound: 0,
+        linksRecorded: 0,
+        linksSkipped: 0,
+      },
     ]);
 
     // 1.1.3 draws the line here. Persisting a finding records what a rule
@@ -593,6 +726,146 @@ describe('persisting a run as rule rows', () => {
     // transaction (1.2.5), and no part of it happens on this path.
     for (const table of untouched) {
       expect(await dataSource.query<StoredRow[]>(`SELECT * FROM ${table}`)).toEqual(before[table]);
+    }
+  });
+
+  it('records a duplicate link as pending, in the same transaction as the findings', async () => {
+    const report = await findings.persist([
+      entry(
+        'D01',
+        1,
+        [found('patient', 'P-1', 'email', 'ana@old.example', 'ana@new.example')],
+        false,
+        [duplicate('patient', 'P-450', 'P-100', 'row-450', 'row-100')],
+      ),
+    ]);
+
+    // 1.7.2's first scenario: the link lands beside the finding from the same
+    // response, in the one transaction `persist` already runs in.
+    expect(await linksOf(duplicates)).toEqual([
+      {
+        id: expect.any(String),
+        sourceTable: 'patient',
+        duplicateLegacyId: 'P-450',
+        duplicateRowId: 'row-450',
+        canonicalLegacyId: 'P-100',
+        canonicalRowId: 'row-100',
+        ruleId: 'D01',
+        version: 1,
+        status: 'pending',
+      },
+    ]);
+    expect(await rowsOf(patientRules)).toHaveLength(1);
+    expect(report).toEqual([
+      {
+        ruleId: 'D01',
+        version: 1,
+        found: 1,
+        declined: 0,
+        repeated: 0,
+        written: 1,
+        linksFound: 1,
+        linksRecorded: 1,
+        linksSkipped: 0,
+      },
+    ]);
+  });
+
+  it('records nothing when the same pair of rows is linked again', async () => {
+    const link = duplicate('patient', 'P-450', 'P-100', 'row-450', 'row-100');
+
+    await findings.persist([entry('D01', 1, [], false, [link])]);
+    const second = await findings.persist([entry('D01', 1, [], false, [link])]);
+
+    // 1.7.2's second scenario. One row, not two, and the report says why:
+    // every finding was skipped, none recorded.
+    expect(await linksOf(duplicates)).toHaveLength(1);
+    expect(second).toEqual([
+      {
+        ruleId: 'D01',
+        version: 1,
+        found: 0,
+        declined: 0,
+        repeated: 0,
+        written: 0,
+        linksFound: 1,
+        linksRecorded: 0,
+        linksSkipped: 1,
+      },
+    ]);
+  });
+
+  it('records nothing when a dismissed pair is found again by a different rule, at any version', async () => {
+    await duplicates.insert({
+      sourceTable: 'patient',
+      duplicateLegacyId: 'P-450',
+      duplicateRowId: 'row-450',
+      canonicalLegacyId: 'P-100',
+      canonicalRowId: 'row-100',
+      ruleId: 'D01',
+      version: 1,
+      status: 'dismissed',
+    });
+
+    const report = await findings.persist([
+      entry('D02', 3, [], false, [duplicate('patient', 'P-450', 'P-100', 'row-450', 'row-100')]),
+    ]);
+
+    // 1.7.2's third scenario: the skip is on the pair, not on which rule or
+    // version last looked at it, so the dismissed row is left exactly as it
+    // was and no second row appears beside it.
+    expect(await linksOf(duplicates)).toEqual([
+      expect.objectContaining({ ruleId: 'D01', version: 1, status: 'dismissed' }),
+    ]);
+    expect(report).toEqual([
+      {
+        ruleId: 'D02',
+        version: 3,
+        found: 0,
+        declined: 0,
+        repeated: 0,
+        written: 0,
+        linksFound: 1,
+        linksRecorded: 0,
+        linksSkipped: 1,
+      },
+    ]);
+  });
+
+  it('fails the whole call on a duplicate finding missing a row id, and writes no finding either', async () => {
+    const failure: unknown = await findings
+      .persist([
+        entry('R-OK', 1, [found('patient', 'P-1', 'phone', '0612345678', '+31612345678')]),
+        entry('D-BAD', 1, [], false, [
+          duplicate('patient', 'P-450', 'P-100', undefined, 'row-100'),
+        ]),
+      ])
+      .catch((error: unknown) => error);
+
+    // 1.7.1: a link without both row ids identifies nothing, so it fails the
+    // whole call the same way an unknown source table does — before any write,
+    // atomically, in one transaction — and takes the valid finding that came
+    // first down with it.
+    expect(failure).toBeInstanceOf(DuplicateLinkMissingRowIdError);
+    expect(failure).toMatchObject({
+      ruleId: 'D-BAD',
+      version: 1,
+      table: 'patient',
+      duplicateLegacyId: 'P-450',
+      canonicalLegacyId: 'P-100',
+    });
+
+    for (const table of [
+      'legacy_patient_rule',
+      'legacy_intake_rule',
+      'legacy_consent_rule',
+      'duplicate',
+    ]) {
+      const [counted] = await dataSource.query<{ rows: number }[]>(
+        `SELECT COUNT(*) AS rows FROM ${table}`,
+      );
+
+      expect(counted?.rows).toBe(0);
     }
   });
 });
