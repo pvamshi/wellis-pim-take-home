@@ -753,6 +753,55 @@ describe('approving rule rows', () => {
     ]);
   });
 
+  it('approves every column one fix proposes on the row together, never half of it (1.1.4)', async () => {
+    await seedRule('R-TWO', [1], 1);
+    await seedFindings(patientRules, [
+      {
+        legacyId: 'P-1',
+        ruleId: 'R-TWO',
+        column: 'phone',
+        previousValue: '0612345678',
+        nextValue: '+31612345678',
+      },
+      {
+        legacyId: 'P-1',
+        ruleId: 'R-TWO',
+        column: 'email',
+        previousValue: 'ana@old.example',
+        nextValue: 'ana@new.example',
+      },
+      {
+        legacyId: 'P-3',
+        ruleId: 'R-TWO',
+        column: 'phone',
+        previousValue: '0698765432',
+        nextValue: '+31698765432',
+      },
+    ]);
+
+    const { status, body } = await approveRow('R-TWO', {
+      table: 'patient',
+      legacyId: 'P-1',
+      version: 1,
+      column: 'phone',
+    });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ ruleId: 'R-TWO', version: 1, approved: 2 });
+    expect(await patient('P-1')).toMatchObject({
+      phone: '+31612345678',
+      email: 'ana@new.example',
+    });
+
+    // Another row of the same rule is a fix of its own, and stays pending.
+    expect((await patient('P-3')).phone).toBe('0698765432');
+    expect(await statusesOf(patientRules)).toEqual([
+      ['P-1', '1', 'email', 'approved'],
+      ['P-1', '1', 'phone', 'approved'],
+      ['P-3', '1', 'phone', 'pending'],
+    ]);
+  });
+
   it('writes a value supplied for an ambiguous finding only with a note, and keeps the note', async () => {
     await seedRule('R-TYPED', [1], 1);
     await seedFindings(patientRules, [

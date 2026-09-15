@@ -187,21 +187,24 @@ export class RuleRowDeclinesService {
         return nothing;
       }
 
-      const row = await manager
+      // Every pending column this version proposes on the row, not only the
+      // named one: a fix that spans columns is one atom (1.1.4), declined
+      // together.
+      const atom = await manager
         .getRepository(entity)
-        .findOne({ where: { legacyId, ruleId, version, column, status: 'pending' } });
+        .find({ where: { legacyId, ruleId, version, status: 'pending' } });
 
-      if (row === null) {
+      if (!atom.some((row) => row.column === column)) {
         return nothing;
       }
 
       await manager.update(
         entity,
-        { legacyId, ruleId, version, column, status: 'pending' },
+        { legacyId, ruleId, version, status: 'pending' },
         { status: 'declined', reason: stored },
       );
 
-      return { ruleId, version, declined: 1, reason: stored };
+      return { ruleId, version, declined: atom.length, reason: stored };
     });
   }
 

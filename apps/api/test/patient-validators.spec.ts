@@ -310,10 +310,10 @@ describe('B2 backend validators (2.5)', () => {
       expect(validateLegacyWeightUnit('kg')).toBeNull();
     });
 
-    it('accepts an empty unit, because kg is the default (D6)', () => {
-      expect(validateLegacyWeightUnit(null)).toBeNull();
-      expect(validateLegacyWeightUnit('')).toBeNull();
-      expect(validateLegacyWeightUnit('   ')).toBeNull();
+    it('fails an empty unit, because kilograms is not assumed', () => {
+      expect(validateLegacyWeightUnit(null)?.field).toBe('weight');
+      expect(validateLegacyWeightUnit('')?.reason).toMatch(/no unit/);
+      expect(validateLegacyWeightUnit('   ')).not.toBeNull();
     });
 
     it('rejects lb and anything else, and names the field "weight"', () => {

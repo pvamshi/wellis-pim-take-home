@@ -384,6 +384,32 @@ describe('declining one rule row', () => {
     await intakes.insert(fixedIntakes());
   });
 
+  it('declines every column one fix proposes on the row together (1.1.4)', async () => {
+    await seedRule('R-TWO', [1], 1);
+    await seedFindings(patientRules, [
+      { legacyId: 'P-1', ruleId: 'R-TWO', column: 'weight', nextValue: '81.6' },
+      { legacyId: 'P-1', ruleId: 'R-TWO', column: 'weight_unit', nextValue: 'kg' },
+      { legacyId: 'P-2', ruleId: 'R-TWO', column: 'weight', nextValue: '70.0' },
+    ]);
+
+    const { body } = await declineRow('R-TWO', {
+      table: 'patient',
+      legacyId: 'P-1',
+      version: 1,
+      column: 'weight_unit',
+      reason: 'already kilograms',
+    });
+
+    // Crossing out one column of a two-column fix crosses out the fix: half of
+    // it declined and half still approvable would let half of it be applied.
+    expect(body).toMatchObject({ ruleId: 'R-TWO', version: 1, declined: 2 });
+    expect(await decisionsOf(patientRules)).toEqual([
+      ['P-1', 'R-TWO', 1, 'weight', 'declined', 'already kilograms'],
+      ['P-1', 'R-TWO', 1, 'weight_unit', 'declined', 'already kilograms'],
+      ['P-2', 'R-TWO', 1, 'weight', 'pending', null],
+    ]);
+  });
+
   it('crosses the row out and stores the reason on it', async () => {
     await seedRule('R-CROSS', [1], 1);
     await seedFindings(patientRules, [

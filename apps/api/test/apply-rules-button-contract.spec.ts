@@ -466,6 +466,7 @@ describe('the “Apply rules” button, pressed by the screen’s own client', (
         ruleName: 'R-BTN-LIST name',
         version: 1,
         pending: 2,
+        approved: 0,
         ambiguous: false,
       },
     ]);

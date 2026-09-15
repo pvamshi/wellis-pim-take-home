@@ -48,12 +48,35 @@ function runSummary(totals: ApplyRulesTotals): string {
   );
 }
 
+/** One of the screen's two lists, under its heading. */
+interface RuleSection {
+  readonly key: string;
+  /** Null for the first list, which the page title already names. */
+  readonly heading: string | null;
+  readonly note: string;
+  readonly rules: RuleListEntry[];
+}
+
+/** The rules with work waiting, then the rules whose changes are all applied (1.2.1). */
+function sections(rules: RuleListEntry[]): RuleSection[] {
+  return [
+    { key: 'work', heading: null, note: '', rules: rules.filter((rule) => rule.pending > 0) },
+    {
+      key: 'applied',
+      heading: 'Applied',
+      note: 'Nothing left to decide. Open a rule to see every change it made.',
+      rules: rules.filter((rule) => rule.pending === 0),
+    },
+  ];
+}
+
 /**
  * The rules screen (1.2.1): every rule whose active version has rows waiting
- * for a decision, most first, each expandable.
+ * for a decision, most first, then the rules whose changes are all applied,
+ * each expandable.
  *
- * The list is rendered exactly as `GET /rules` hands it over — no sort, no
- * filter, no dropping of zero counts. That behaviour is the endpoint's (T5.1)
+ * The list is rendered in the order `GET /rules` hands it over — no sort, and
+ * no line dropped; the page only splits it in two. That behaviour is the endpoint's (T5.1)
  * and is tested there; repeating it here would create a second definition of
  * 1.2.1 that could quietly disagree with the first.
  *
@@ -162,7 +185,8 @@ export function RulesPage() {
           <Stack gap={4}>
             <Title order={1}>Rules</Title>
             <Text size="sm" c="dimmed">
-              Rules with rows waiting for a decision, the largest first.
+              Rules with rows waiting for a decision, the largest first, then the rules already
+              applied.
             </Text>
           </Stack>
           {/*
@@ -240,59 +264,78 @@ export function RulesPage() {
           </Alert>
         )}
 
-        {state.kind === 'loaded' && state.rules.length === 0 && (
+        {state.kind === 'loaded' && state.rules.every((rule) => rule.pending === 0) && (
           <Stack gap="xs">
             <Text fw={600}>Nothing is pending.</Text>
             <Text size="sm" c="dimmed">
-              A rule appears here only once a run has left rows awaiting a decision, so an empty
-              screen means either no rules have been written yet or every finding has been settled.
+              A rule appears here once a run has left rows awaiting a decision. Rules whose changes
+              have all been applied are listed under Applied.
             </Text>
           </Stack>
         )}
 
-        {state.kind === 'loaded' && state.rules.length > 0 && (
-          /*
+        {state.kind === 'loaded' &&
+          sections(state.rules).map(
+            (section) =>
+              section.rules.length > 0 && (
+                <Stack key={section.key} gap="xs">
+                  {section.heading !== null && (
+                    <Stack gap={2}>
+                      <Text fw={600}>{section.heading}</Text>
+                      <Text size="sm" c="dimmed">
+                        {section.note}
+                      </Text>
+                    </Stack>
+                  )}
+                  {/*
             keepMounted={false} is load-bearing, not styling. Mantine keeps
             collapsed panels mounted by default, which would mount every panel
             on load and fire one GET /rules/:ruleId per listed rule. Unmounted
             collapsed panels mean the detail is read when a rule is expanded,
             and re-read when it is expanded again.
-          */
-          <Accordion variant="separated" keepMounted={false}>
-            {/*
+          */}
+                  <Accordion variant="separated" keepMounted={false}>
+                    {/*
               Keyed by rule id, which cannot repeat: exactly one version of a
               rule is active at a time (1.1.8), and the list is built from the
               active versions.
             */}
-            {state.rules.map((rule) => (
-              <Accordion.Item key={rule.ruleId} value={rule.ruleId}>
-                <Accordion.Control>
-                  <Group justify="space-between" wrap="nowrap" pr="sm">
-                    <Group gap="xs" wrap="nowrap">
-                      <Text fw={600}>{rule.ruleName}</Text>
-                      <Text size="sm" c="dimmed">
-                        v{rule.version}
-                      </Text>
-                    </Group>
-                    <Group gap="xs" wrap="nowrap">
-                      {/*
+                    {section.rules.map((rule) => (
+                      <Accordion.Item key={rule.ruleId} value={rule.ruleId}>
+                        <Accordion.Control>
+                          <Group justify="space-between" wrap="nowrap" pr="sm">
+                            <Group gap="xs" wrap="nowrap">
+                              <Text fw={600}>{rule.ruleName}</Text>
+                              <Text size="sm" c="dimmed">
+                                v{rule.version}
+                              </Text>
+                            </Group>
+                            <Group gap="xs" wrap="nowrap">
+                              {/*
                         Said on the closed line because it changes what opening
                         it costs (1.1.12): an ambiguous rule proposes nothing,
                         so its pending rows are answered one at a time rather
                         than ticked through together. Yellow is the colour the
                         panel's own notice uses for the same fact.
                       */}
-                      {rule.ambiguous && (
-                        <Badge variant="light" color="yellow">
-                          Needs a value
-                        </Badge>
-                      )}
-                      <Badge variant="light">{rule.pending} pending</Badge>
-                    </Group>
-                  </Group>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  {/*
+                              {rule.ambiguous && (
+                                <Badge variant="light" color="yellow">
+                                  Needs a value
+                                </Badge>
+                              )}
+                              {rule.pending > 0 && (
+                                <Badge variant="light">{rule.pending} pending</Badge>
+                              )}
+                              {rule.approved > 0 && (
+                                <Badge variant="light" color="green">
+                                  {rule.approved} applied
+                                </Badge>
+                              )}
+                            </Group>
+                          </Group>
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                          {/*
                     The sections, the values and the row actions are the
                     panel's, read from GET /rules/:ruleId when this item is
                     expanded. This page still issues exactly one request of its
@@ -303,7 +346,7 @@ export function RulesPage() {
                     it: a rule with nothing left pending, or one whose version
                     has just been parked, leaves (1.2.1).
                   */}
-                  {/*
+                          {/*
                     Keyed by the rule id and the run counter, so a finished run
                     remounts an open panel and its rows are read again — a run
                     changes what is inside an expanded rule, and the panel reads
@@ -311,19 +354,21 @@ export function RulesPage() {
                     accordion item so the item the user has open stays open.
                     Collapsed panels are not mounted at all.
                   */}
-                  <RuleDetailPanel
-                    key={`${rule.ruleId}:${runs}`}
-                    ruleId={rule.ruleId}
-                    onChanged={(outcome) => {
-                      setLastOutcome(outcome);
-                      refresh();
-                    }}
-                  />
-                </Accordion.Panel>
-              </Accordion.Item>
-            ))}
-          </Accordion>
-        )}
+                          <RuleDetailPanel
+                            key={`${rule.ruleId}:${runs}`}
+                            ruleId={rule.ruleId}
+                            onChanged={(outcome) => {
+                              setLastOutcome(outcome);
+                              refresh();
+                            }}
+                          />
+                        </Accordion.Panel>
+                      </Accordion.Item>
+                    ))}
+                  </Accordion>
+                </Stack>
+              ),
+          )}
 
         {state.kind === 'failed' && (
           <Alert color="red" title="The rules could not be loaded">

@@ -260,7 +260,7 @@ One queue for both origins.
 | `phone` (legacy) | null, or E.164: `+` then 8–15 digits |
 | `account_status` (legacy) | `active` · `paused` · `churned` · `prospect` |
 | `signup_date` (legacy) | null, or a real date not after today |
-| `weight` (legacy) | `weight_unit` is `kg`, or empty — kg is the default (D6) |
+| `weight` (legacy) | `weight_unit` is `kg`. An empty unit fails, since kilograms is not assumed; a pounds weight fails until P66's conversion is approved |
 
 BMI: `weight_kg / (height_cm / 100)²`, rounded half-up to 1 dp.
 

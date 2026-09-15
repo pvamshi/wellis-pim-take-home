@@ -412,8 +412,11 @@ export class RuleApprovalsService {
    * Approves one rule row, addressed by its primary key (1.2.4, second
    * scenario).
    *
-   * Only that row moves and only that row's column is written; the rule's other
-   * rows stay pending and approvable. There is no check that the named version
+   * Only that row moves; the rule's other rows stay pending and approvable.
+   * Every column the version proposes on that row moves with it: a fix may span
+   * columns, and those are one atom (1.1.4), never half-applied — for a rule
+   * that proposes one column, that is the named finding alone. There is no
+   * check that the named version
    * is the active one — the caller named the version, and rule-level approve is
    * the one that has to choose between them.
    *
@@ -449,15 +452,23 @@ export class RuleApprovalsService {
       // Pending is part of the lookup, not a check after it: a row that is
       // already approved (1.2.11) or declined (1.2.7) is settled, and the press
       // simply finds nothing of its own to do.
-      const row = await manager
-        .getRepository(source.rules)
-        .findOne({ where: { legacyId, ruleId, version, column, status: 'pending' } });
+      const atom = await manager.getRepository(source.rules).find({
+        where: { legacyId, ruleId, version, status: 'pending' },
+        order: { column: 'ASC' },
+      });
+      const row = atom.find((candidate) => candidate.column === column);
 
-      if (row === null) {
+      if (row === undefined) {
         return nothing;
       }
 
       if (supplied !== undefined) {
+        if (atom.length > 1) {
+          throw new Error(
+            `cannot supply one value for ${describe(source, row)}: the fix spans ${atom.length} columns`,
+          );
+        }
+
         if (row.nextValue !== null) {
           throw new Error(
             `cannot supply a value for ${describe(source, row)}: the rule already proposes one`,
@@ -467,11 +478,11 @@ export class RuleApprovalsService {
         row.nextValue = supplied.value;
       }
 
-      const updated = await applyPrepared(manager, await prepare(manager, source, [row]));
+      const updated = await applyPrepared(manager, await prepare(manager, source, atom));
 
       await manager.update(
         source.rules,
-        { legacyId, ruleId, version, column, status: 'pending' },
+        { legacyId, ruleId, version, status: 'pending' },
         // The supplied value is written back to the row as well as into the
         // data. Without it the finding would stay a null proposal that somehow
         // got approved, and the modification log would have nothing to print
@@ -483,7 +494,7 @@ export class RuleApprovalsService {
         },
       );
 
-      return { ruleId, version, approved: 1, updated };
+      return { ruleId, version, approved: atom.length, updated };
     });
   }
 

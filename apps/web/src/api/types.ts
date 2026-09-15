@@ -26,8 +26,10 @@ export interface RuleListEntry {
   readonly ruleName: string;
   /** The active version, and so the version the count belongs to (1.1.8). */
   readonly version: number;
-  /** Rows of this rule and version still awaiting a decision. Never zero. */
+  /** Rows of this rule and version still awaiting a decision. Zero when every change is applied. */
   readonly pending: number;
+  /** Rows of this rule and version already approved and applied (1.2.2). */
+  readonly approved: number;
   /**
    * Whether this rule proposes values or only reports what it cannot fix
    * (1.1.12). On the list so a line can say so before it is opened: an

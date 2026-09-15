@@ -186,6 +186,7 @@ describe('the rules list', () => {
         ruleName: 'R-WORK name',
         version: 1,
         pending: 340,
+        approved: 0,
         ambiguous: false,
       },
     ]);
@@ -208,12 +209,13 @@ describe('the rules list', () => {
         ruleName: 'R-ASKS name',
         version: 1,
         pending: 3,
+        approved: 0,
         ambiguous: true,
       },
     ]);
   });
 
-  it('leaves out a rule whose active version has rows but none of them pending', async () => {
+  it('lists a rule whose changes are all applied after the rules with work, and leaves out one only declined', async () => {
     await seedRule('R-SETTLED-A', [1], 1);
     await seedRule('R-SETTLED-D', [1], 1);
     await seedRule('R-PENDING', [1], 1);
@@ -221,11 +223,15 @@ describe('the rules list', () => {
     await seedFindings(patientRules, findings('R-SETTLED-D', 3, { status: 'declined' }));
     await seedFindings(patientRules, findings('R-PENDING', 1));
 
-    // 1.2.1, second scenario. A rule everybody has already decided has nothing
-    // waiting, and an empty section is not a rule with work — approved rows
-    // belong to the detail screen (1.2.2), declined ones are settled (1.2.7).
-    // The third rule is here so an empty list cannot pass this test by itself.
-    expect(await listedRules()).toEqual([['R-PENDING', 1]]);
+    const { body } = await loadRules();
+
+    // 1.2.1. A rule whose every change was applied stays on the screen, after
+    // the rules with work, so what it changed can still be opened (1.2.2). A
+    // rule whose rows were all declined changed nothing, and is left out.
+    expect(body.map((entry) => [entry.ruleId, entry.pending, entry.approved])).toEqual([
+      ['R-PENDING', 1, 0],
+      ['R-SETTLED-A', 0, 4],
+    ]);
   });
 
   it('leaves out a rule with pending rows whose version is not active', async () => {
@@ -254,9 +260,10 @@ describe('the rules list', () => {
 
     // The count is what pressing Approve on the rule would clear, and that
     // press moves the pending rows of the *active* version. Version 1's rows
-    // are the ones a decline left lying around; counting them would put the
-    // rule back on the screen with a number no button can move.
-    expect(await listedRules()).toEqual([]);
+    // are the ones a decline left lying around; counting them would give the
+    // rule a number no button can move. It is listed for version 2's applied
+    // rows alone.
+    expect(await listedRules()).toEqual([['R-SUPERSEDED', 0]]);
   });
 
   it('counts only the active version’s rows when an older version left some pending', async () => {
@@ -327,12 +334,12 @@ describe('the rules list', () => {
     expect(empty.body).toEqual([]);
 
     await seedRule('R-QUIET', [1], 1);
-    await seedFindings(patientRules, findings('R-QUIET', 3, { status: 'approved' }));
+    await seedFindings(patientRules, findings('R-QUIET', 3, { status: 'declined' }));
 
     const quiet = await loadRules();
 
-    // Rules, but nothing pending on any of them. An empty screen is a state,
-    // not a failure.
+    // Rules, but nothing pending and nothing applied on any of them. An empty
+    // screen is a state, not a failure.
     expect(quiet.status).toBe(200);
     expect(quiet.body).toEqual([]);
   });

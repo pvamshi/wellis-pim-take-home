@@ -33,16 +33,13 @@ README as a stated choice.
   pass structure, or both. Get something basic working first.
 - If it does happen, we address it then.
 
-## D6. Fixes that change two columns at once (1.1.4)
-- A rule proposes one column per finding. Nothing shows, approves or declines
-  two columns of one row as a single change.
-- The one fix that needed it was converting a pounds weight to kilograms, which
-  writes both `weight` and `weight_unit`. Instead, kilograms is the default: an
-  empty `weight_unit` means kg (P47 v2 proposes it, and import reads it that
-  way), and a legacy patient whose weight is in pounds fails import with a field
-  error until someone corrects `weight` and `weight_unit` by hand.
-- Why: one rule in the whole catalogue needed it, and the pounds rows are few
-  enough to correct by hand.
+## D6. Fixes that change two columns at once (1.1.4) — withdrawn
+- Deferred on 2026-09-15, with kilograms assumed for an empty weight unit.
+- Withdrawn on 2026-09-16: an empty unit is not always kilograms, and a pounds
+  weight needs converting rather than correcting by hand. Row-level approve and
+  decline now act on every column a version proposes for that row, and P66
+  converts a pounds weight. Still not built: showing those columns on screen as
+  one change rather than as separate lines.
 
 ## D2. Reversing an accepted modification
 - Once the user accepts a proposal, the change is final. There is no undo, and no

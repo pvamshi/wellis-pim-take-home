@@ -9,9 +9,10 @@ import {
 import { RuleVersion } from './rule-version.entity';
 
 /**
- * One line of the rules screen (1.2.1): a rule that has work waiting.
+ * One line of the rules screen (1.2.1): a rule that has work waiting, or one
+ * whose changes have all been applied.
  *
- * Five fields and no more. `ruleName` is how a line names the rule it is, and
+ * Six fields and no more. `ruleName` is how a line names the rule it is, and
  * `version` is the half of the address the count belongs to — 1.2.1 filters on
  * the active version, and every row action is addressed by `(ruleId, version)`.
  * Everything else a rule knows about itself belongs to the screen that expands
@@ -23,14 +24,19 @@ import { RuleVersion } from './rule-version.entity';
  * afternoon on one line and a second on another, and which it is has to be
  * readable before the line is opened. It is free to send: the `rule` row is
  * already joined for the name.
+ *
+ * `approved` is what keeps a finished rule on the screen. Without it a rule
+ * whose every change was applied would leave no trace of what it changed.
  */
 export interface RuleListEntry {
   readonly ruleId: string;
   readonly ruleName: string;
-  /** The active version, and so the version the count belongs to (1.1.8). */
+  /** The active version, and so the version the counts belong to (1.1.8). */
   readonly version: number;
-  /** Rows of this rule and version still awaiting a decision. Never zero. */
+  /** Rows of this rule and version still awaiting a decision. Zero when every change is applied. */
   readonly pending: number;
+  /** Rows of this rule and version already approved and applied (1.2.2). */
+  readonly approved: number;
   /** Whether this rule proposes values or only reports what it cannot fix (1.1.12). */
   readonly ambiguous: boolean;
 }
@@ -50,11 +56,18 @@ const ruleTables: readonly EntityTarget<LegacyRuleRow>[] = [
   LegacyConsentRule,
 ];
 
-/** One grouped count, as the driver hands it back. */
-interface PendingCount {
+/** One grouped count of one status, as the driver hands it back. */
+interface StatusCount {
   ruleId: string;
   version: number;
-  pending: number | string;
+  status: string;
+  count: number | string;
+}
+
+/** How many of one version's rows are waiting, and how many were applied. */
+interface VersionCounts {
+  pending: number;
+  approved: number;
 }
 
 /**
@@ -105,8 +118,9 @@ export class RuleListService {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * Every rule whose active version has at least one pending row, with how
-   * many, most first (1.2.1).
+   * Every rule whose active version has at least one pending or approved row,
+   * with how many of each (1.2.1): the rules with work first, most pending
+   * first, then the rules whose changes are all applied, most applied first.
    */
   async list(): Promise<RuleListEntry[]> {
     const active = await this.dataSource
@@ -118,12 +132,12 @@ export class RuleListService {
       .where('version.status = :status', { status: 'active' })
       .getMany();
 
-    const pending = await this.countPending();
+    const counts = await this.countRows();
 
     const entries = active.flatMap((version): RuleListEntry[] => {
-      const count = pending.get(pendingKey(version.ruleId, version.version)) ?? 0;
+      const count = counts.get(pendingKey(version.ruleId, version.version));
 
-      if (count === 0) {
+      if (count === undefined || (count.pending === 0 && count.approved === 0)) {
         return [];
       }
 
@@ -132,16 +146,18 @@ export class RuleListService {
           ruleId: version.ruleId,
           ruleName: version.rule.ruleName,
           version: version.version,
-          pending: count,
+          pending: count.pending,
+          approved: count.approved,
           ambiguous: version.rule.ambiguous,
         },
       ];
     });
 
-    // Most first, and nothing beyond that: 1.2.1 orders the screen by how many
-    // rows each rule caught and says nothing about two rules that caught the
-    // same number, so neither does this.
-    return entries.sort((left, right) => right.pending - left.pending);
+    // Most pending first (1.2.1), so a rule with nothing pending sorts after
+    // every rule with work; among those, most applied first.
+    return entries.sort(
+      (left, right) => right.pending - left.pending || right.approved - left.approved,
+    );
   }
 
   /**
@@ -157,8 +173,8 @@ export class RuleListService {
    * mapped column: a driver is free to hand `COUNT(*)` back as a string, and a
    * string would sort and add as text.
    */
-  private async countPending(): Promise<Map<string, number>> {
-    const counts = new Map<string, number>();
+  private async countRows(): Promise<Map<string, VersionCounts>> {
+    const counts = new Map<string, VersionCounts>();
 
     for (const table of ruleTables) {
       const rows = await this.dataSource
@@ -166,16 +182,22 @@ export class RuleListService {
         .createQueryBuilder('finding')
         .select('finding.ruleId', 'ruleId')
         .addSelect('finding.version', 'version')
-        .addSelect('COUNT(*)', 'pending')
-        .where('finding.status = :status', { status: 'pending' })
+        .addSelect('finding.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .where('finding.status IN (:...statuses)', { statuses: ['pending', 'approved'] })
         .groupBy('finding.ruleId')
         .addGroupBy('finding.version')
-        .getRawMany<PendingCount>();
+        .addGroupBy('finding.status')
+        .getRawMany<StatusCount>();
 
       for (const row of rows) {
         const key = pendingKey(row.ruleId, row.version);
+        const count = counts.get(key) ?? { pending: 0, approved: 0 };
 
-        counts.set(key, (counts.get(key) ?? 0) + Number(row.pending));
+        if (row.status === 'pending') count.pending += Number(row.count);
+        else count.approved += Number(row.count);
+
+        counts.set(key, count);
       }
     }
 

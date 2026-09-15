@@ -64,6 +64,7 @@ import { p62 } from './catalogue/p62';
 import { p63 } from './catalogue/p63';
 import { p64 } from './catalogue/p64';
 import { p65 } from './catalogue/p65';
+import { p66 } from './catalogue/p66';
 import { i01 } from './catalogue/i01';
 import { i02 } from './catalogue/i02';
 import { i03 } from './catalogue/i03';
@@ -221,6 +222,7 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   p63,
   p64,
   p65,
+  p66,
   i01,
   i02,
   i03,

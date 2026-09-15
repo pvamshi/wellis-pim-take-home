@@ -160,8 +160,9 @@ type RuleResponse = {
 
 ### 1.1.4 A rule is atomic
 
-> **Deferred (D6):** fixes spanning two columns are not built. Kilograms is the
-> default weight unit, so the pounds conversion below is not needed now.
+> **Built for P66**, the pounds conversion. Row-level approve and decline act on
+> every column a version proposes for that row. The screens still list those
+> columns as separate lines rather than as one change.
 
 One rule, one fix. Several fixes are never clubbed into a single rule. A rule is
 approved or declined as one thing, and the reason a value changed is always a
@@ -289,7 +290,7 @@ Recording, confirming, dismissing, merging and retiring X: 1.7.
 
 ## 1.2 Apply and review
 
-### 1.2.1 The rules screen shows only rules with work
+### 1.2.1 The rules screen shows rules with work, then rules applied
 
 ```gherkin
 Scenario: a rule with pending findings
@@ -297,15 +298,23 @@ Scenario: a rule with pending findings
   When the rules screen loads
   Then R7 appears with its 340 rows
 
-Scenario: a rule with nothing pending
-  Given rule R9's active version has no rows in pending
+Scenario: a rule with nothing pending and nothing applied
+  Given rule R9's active version has no rows in pending and none approved
   When the rules screen loads
   Then R9 does not appear
+
+Scenario: a rule whose changes are all applied
+  Given rule R12's active version has no rows in pending and 1426 approved
+  When the rules screen loads
+  Then R12 appears under Applied, after every rule with work
+  And expanding it lists the changes it made (1.2.2)
 ```
 
 The screen joins `rule`, `rule_version` and the per-table rule table, filtering
-to active versions with at least one pending row. Rules sort by how many rows
-each caught, most first.
+to active versions with at least one pending or approved row. Rules with work
+sort by how many rows each caught, most first; the applied ones follow, most
+applied first. Without them, a rule whose work is finished would leave no trace
+on the screen of what it changed.
 
 ### 1.2.2 A rule can show two sections
 
