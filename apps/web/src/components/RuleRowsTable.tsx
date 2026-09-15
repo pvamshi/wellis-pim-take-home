@@ -54,6 +54,8 @@ export interface RuleRowsTableProps {
   /** The rule's description, which is what an ambiguous rule shows (1.2.3). */
   readonly description: string;
   readonly actions?: RuleRowActions;
+  /** Drops the Source and Legacy id columns, for a table already inside one row's own panel. */
+  readonly hideRowIdentity?: boolean;
 }
 
 /**
@@ -218,11 +220,18 @@ const ESTIMATED_ROW_HEIGHT = 56;
 /** How much of the list is drawn. The virtualiser needs a scroll box to own. */
 const LIST_HEIGHT = 420;
 
-export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRowsTableProps) {
-  // Source, legacy id, column and before, plus after on a rule that proposes
-  // one and the decision column when the section is actionable. The full-width
-  // cell below each ambiguous row spans exactly these.
-  const columnCount = 4 + (ambiguous ? 0 : 1) + (actions === undefined ? 0 : 1);
+export function RuleRowsTable({
+  rows,
+  ambiguous,
+  description,
+  actions,
+  hideRowIdentity = false,
+}: RuleRowsTableProps) {
+  // Source and legacy id (unless hidden), column and before, plus after on a
+  // rule that proposes one and the decision column when the section is
+  // actionable. The full-width cell below each ambiguous row spans exactly these.
+  const columnCount =
+    (hideRowIdentity ? 2 : 4) + (ambiguous ? 0 : 1) + (actions === undefined ? 0 : 1);
 
   /**
    * Only the rows on screen are drawn.
@@ -264,8 +273,8 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
       <Table striped={!ambiguous} highlightOnHover stickyHeader>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Source</Table.Th>
-            <Table.Th>Legacy id</Table.Th>
+            {!hideRowIdentity && <Table.Th>Source</Table.Th>}
+            {!hideRowIdentity && <Table.Th>Legacy id</Table.Th>}
             <Table.Th>Column</Table.Th>
             <Table.Th>Before</Table.Th>
             {/*
@@ -303,12 +312,16 @@ export function RuleRowsTable({ rows, ambiguous, description, actions }: RuleRow
                 return (
                   <>
                     <Table.Tr>
-                      <Table.Td>
-                        <Text size="sm">{row.table}</Text>
-                      </Table.Td>
-                      <Table.Td>
-                        <Code>{row.legacyId}</Code>
-                      </Table.Td>
+                      {!hideRowIdentity && (
+                        <Table.Td>
+                          <Text size="sm">{row.table}</Text>
+                        </Table.Td>
+                      )}
+                      {!hideRowIdentity && (
+                        <Table.Td>
+                          <Code>{row.legacyId}</Code>
+                        </Table.Td>
+                      )}
                       <Table.Td>
                         <Text size="sm">{row.column}</Text>
                       </Table.Td>

@@ -562,6 +562,7 @@ export function RowDetailPanel({
                 {pendingRows.length > 0 && (
                   <RuleRowsTable
                     rows={pendingRows}
+                    hideRowIdentity
                     ambiguous={group.ambiguous}
                     description={group.description}
                     actions={
@@ -588,6 +589,7 @@ export function RowDetailPanel({
                     </Text>
                     <RuleRowsTable
                       rows={settledRows}
+                      hideRowIdentity
                       ambiguous={group.ambiguous}
                       description={group.description}
                     />
