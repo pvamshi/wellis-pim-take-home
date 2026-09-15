@@ -89,15 +89,21 @@ export class RowRejectionsService {
    * second rejection of an already-rejected row updates the one row in place
    * with whatever reason this press was given — the row's key is
    * `(table, legacyId)`, so there is nowhere else for a second press to land.
+   *
+   * `manager`, when given, is written through instead of opening a transaction
+   * of this call's own — what lets a caller land this write in the same
+   * transaction as something else (1.7.5's confirm, alongside the link's
+   * status flip). Every existing 3-argument caller is unaffected.
    */
   async reject(
     table: LegacySourceTable,
     legacyId: string,
     reason?: string | null,
+    manager?: EntityManager,
   ): Promise<RowRejectionReport> {
     const stored = storedReason(reason);
 
-    return await this.dataSource.transaction(async (manager: EntityManager) => {
+    const run = async (manager: EntityManager): Promise<RowRejectionReport> => {
       const repository = manager.getRepository(RowRejection);
       const existing = await repository.findOne({ where: { table, legacyId } });
 
@@ -108,7 +114,9 @@ export class RowRejectionsService {
       }
 
       return { table, legacyId, rejected: true, reason: stored };
-    });
+    };
+
+    return manager === undefined ? await this.dataSource.transaction(run) : await run(manager);
   }
 
   /**

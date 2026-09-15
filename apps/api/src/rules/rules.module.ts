@@ -3,6 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DuplicatesModule } from '../duplicates/duplicates.module';
 import { LegacyModule } from '../legacy/legacy.module';
 import { RowsModule } from '../rows/rows.module';
+import { DuplicateDecisionsService } from './duplicate-decisions.service';
+import { DuplicateDetailService } from './duplicate-detail.service';
+import { DuplicateListService } from './duplicate-list.service';
 import { RowDetailService } from './row-detail.service';
 import { RowEditService } from './row-edit.service';
 import { RowListService } from './row-list.service';
@@ -132,6 +135,23 @@ import { Rule } from './rule.entity';
  * every finding on a row at once — an edit addresses one named column with a
  * supplied value instead. Exported for the same reason every other endpoint's
  * service here is.
+ *
+ * `DuplicateListService` and `DuplicateDetailService` are the duplicates
+ * screen's two reads (1.7.4) — `RuleListService`/`RuleDetailService`'s and
+ * `RowListService`/`RowDetailService`'s transpose again, this time over
+ * `duplicate` rather than the legacy or rule tables, but the same reasoning:
+ * the tables involved are already this module's (`duplicate` via
+ * `DuplicatesModule`, `rule` here, the legacy data tables via `LegacyModule`).
+ * Each needs no `forFeature` of its own for that reason, and each is exported
+ * for the endpoint that reads it, living in a module of its own like every
+ * other one here.
+ *
+ * `DuplicateDecisionsService` is confirm and dismiss (1.7.5, 1.7.6) — the
+ * write path onto `duplicate` that sits beside `RuleFindingsService`, the
+ * table's only other writer. It injects `RowRejectionsService` from
+ * `RowsModule` (already imported) to reject X on a confirmed patient link,
+ * inside the same transaction, by handing that service the transaction's own
+ * manager. Exported for `duplicate-actions/`, its endpoint's module.
  */
 @Module({
   imports: [
@@ -152,6 +172,9 @@ import { Rule } from './rule.entity';
     RowListService,
     RowDetailService,
     RowEditService,
+    DuplicateListService,
+    DuplicateDetailService,
+    DuplicateDecisionsService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -168,6 +191,9 @@ import { Rule } from './rule.entity';
     RowListService,
     RowDetailService,
     RowEditService,
+    DuplicateListService,
+    DuplicateDetailService,
+    DuplicateDecisionsService,
   ],
 })
 export class RulesModule {}

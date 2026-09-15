@@ -4,6 +4,9 @@ import { ApproveModule } from './approve/approve.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
 import { AppConfigModule } from './config/app-config.module';
 import { DeclineModule } from './decline/decline.module';
+import { DuplicateActionsModule } from './duplicate-actions/duplicate-actions.module';
+import { DuplicateDetailModule } from './duplicate-detail/duplicate-detail.module';
+import { DuplicatesListModule } from './duplicates-list/duplicates-list.module';
 import { DuplicatesModule } from './duplicates/duplicates.module';
 import { HealthModule } from './health/health.module';
 import { LegacyImportModule } from './import/legacy-import.module';
@@ -31,6 +34,9 @@ import { RulesModule } from './rules/rules.module';
     RulesListModule,
     RuleDetailModule,
     DuplicatesModule,
+    DuplicatesListModule,
+    DuplicateDetailModule,
+    DuplicateActionsModule,
     RowsModule,
     RowsListModule,
     RowDetailModule,
