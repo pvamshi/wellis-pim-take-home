@@ -257,8 +257,8 @@ export interface ApplyRulesReport {
   readonly totals: ApplyRulesTotals;
 }
 
-/** The three states a row can be in (1.6.1, 1.6.2). */
-export type RowState = 'pending' | 'clean' | 'rejected';
+/** The four states a row can be in (1.6.1, 1.6.2, and B7's `imported`, 2.6). Precedence: imported > rejected > pending > clean. */
+export type RowState = 'imported' | 'pending' | 'clean' | 'rejected';
 
 /**
  * One line of the rows screen (1.6.1): a legacy row and the state it is in.
@@ -515,3 +515,188 @@ export interface DuplicateDismissReport {
   readonly id: string;
   readonly status: 'dismissed';
 }
+
+// === B5/B6/B7: intake, review and import ====================================
+
+/**
+ * One field that failed 2.5's rules — the 422 body's own shape (2.9: `{
+ * message, errors: [{ field, value, reason }] }`).
+ *
+ * A restatement of the backend's `FieldError`
+ * (`apps/api/src/patient/validation/field-error.ts`). `field` is nullable for
+ * a row that fails a precondition rather than a field rule (2.6): individual
+ * and bulk import both read that as `{ field: null, value: null, reason }`.
+ */
+export interface FieldError {
+  readonly field: string | null;
+  readonly value: unknown;
+  readonly reason: string;
+}
+
+/** The intake form's five validated steps (2.3.1); step 6 is Check-and-submit and validates nothing of its own. */
+export type IntakeStep = 1 | 2 | 3 | 4 | 5;
+
+/**
+ * A patient row's questionnaire fields, keyed the way 2.3.1 and the backend's
+ * `PatientAnswers` (`apps/api/src/patient/patient-answers.ts`) name them.
+ *
+ * A restatement, exactly as `RuleListEntry` restates its own backend type: if
+ * the two disagree, the backend is right and this file is the bug.
+ */
+export interface PatientAnswers {
+  readonly full_name: string;
+  readonly email: string;
+  readonly date_of_birth: string;
+  readonly height_cm: number | null;
+  readonly weight_kg: number | null;
+  readonly glp1_current: boolean | null;
+  readonly glp1_medications: readonly string[] | null;
+  readonly other_medications: string | null;
+  readonly weight_conditions: readonly string[] | null;
+  readonly thyroid_cancer_history: boolean | null;
+  readonly pancreatitis_history: boolean | null;
+  readonly other_conditions: string | null;
+  readonly alcohol_units_week: number | null;
+  readonly consent_data_processing: boolean;
+}
+
+/** What a patient reads back (2.3, 2.9): never the outcome, never a BMI — every status from `submitted` on collapses into `received`. */
+export type IntakePatientStatus = 'draft' | 'received';
+
+/** The backend's `IntakeView` — every intake read and write answers with this shape. */
+export interface IntakeView {
+  readonly id: string;
+  readonly status: IntakePatientStatus;
+  readonly answers: PatientAnswers;
+}
+
+/** The 8 states an intake can be in (2.2) — a restatement of the backend's `IntakeStatus`. */
+export type IntakeStatus =
+  | 'draft'
+  | 'submitted'
+  | 'auto_cleared'
+  | 'auto_flagged'
+  | 'auto_rejected'
+  | 'in_review'
+  | 'approved'
+  | 'rejected';
+
+/** Where a patient row came from (2.0) — a restatement of the backend's `PatientOrigin`. */
+export type PatientOrigin = 'intake' | 'legacy';
+
+/** One `elig-1` rule's stored result (2.7) — a restatement of the backend's `EvaluationEntry` on `patient.evaluation`. */
+export interface EvaluationEntry {
+  readonly ruleId: string;
+  readonly matched: boolean;
+  readonly outcome: 'reject' | 'flag';
+  readonly explanation: string;
+}
+
+/** The two tables an audit event can be about (2.8) — a restatement of the backend's `AuditEntity`. */
+export type AuditEntity = 'patient' | 'consent_event';
+
+/** How a `patient`/`consent_event` row came to be, or changed (2.8) — a restatement of the backend's `AuditAction`. */
+export type AuditAction = 'create' | 'import' | 'transition' | 'decision';
+
+/** One line of status history (2.4, 2.8) — a restatement of the backend's `AuditEvent` entity. */
+export interface AuditEvent {
+  readonly id: string;
+  readonly entity: AuditEntity;
+  readonly entityId: string;
+  readonly action: AuditAction;
+  readonly fromState: string | null;
+  readonly toState: string | null;
+  readonly actor: string;
+  readonly reason: string | null;
+  readonly at: string;
+}
+
+/** One answer, with whether it was ever asked (2.4: "not-recorded answers marked for legacy rows"). */
+export interface RecordedAnswer<T> {
+  readonly value: T;
+  readonly recorded: boolean;
+}
+
+/** The review detail's answers, grouped by questionnaire step (2.4) — a restatement of the backend's `ReviewAnswers`. */
+export interface ReviewAnswers {
+  readonly step1: {
+    readonly full_name: RecordedAnswer<string>;
+    readonly email: RecordedAnswer<string>;
+    readonly date_of_birth: RecordedAnswer<string>;
+  };
+  readonly step2: {
+    readonly height_cm: RecordedAnswer<number | null>;
+    readonly weight_kg: RecordedAnswer<number | null>;
+  };
+  readonly step3: {
+    readonly glp1_current: RecordedAnswer<boolean | null>;
+    readonly glp1_medications: RecordedAnswer<readonly string[] | null>;
+    readonly other_medications: RecordedAnswer<string | null>;
+  };
+  readonly step4: {
+    readonly weight_conditions: RecordedAnswer<readonly string[] | null>;
+    readonly thyroid_cancer_history: RecordedAnswer<boolean | null>;
+    readonly pancreatitis_history: RecordedAnswer<boolean | null>;
+    readonly other_conditions: RecordedAnswer<string | null>;
+    readonly alcohol_units_week: RecordedAnswer<number | null>;
+  };
+  readonly step5: {
+    readonly consent_data_processing: RecordedAnswer<boolean>;
+  };
+}
+
+/** One line of the review queue (2.4) — a restatement of the backend's `ReviewQueueEntry`. */
+export interface ReviewQueueEntry {
+  readonly id: string;
+  readonly submittedAt: string | null;
+  readonly origin: PatientOrigin;
+  readonly age: number;
+  readonly bmi: number | null;
+  readonly status: IntakeStatus;
+  /** Every rule id that matched (2.7) — flag and reject alike, the "matched flags" column. */
+  readonly matchedRuleIds: string[];
+}
+
+/** One row expanded (2.4) — a restatement of the backend's `ReviewDetail`. */
+export interface ReviewDetail {
+  readonly id: string;
+  readonly origin: PatientOrigin;
+  readonly status: IntakeStatus;
+  readonly submittedAt: string | null;
+  readonly decidedAt: string | null;
+  readonly age: number;
+  readonly answers: ReviewAnswers;
+  readonly evaluation: {
+    readonly rulesetVersion: string | null;
+    readonly results: EvaluationEntry[];
+  };
+  /** Status history (2.4), oldest first. */
+  readonly history: AuditEvent[];
+}
+
+/** What Start review / Approve / Reject hand back (2.4) — a restatement of the backend's `ReviewStatusResponse`. */
+export interface ReviewStatusResponse {
+  readonly id: string;
+  readonly status: IntakeStatus;
+}
+
+/** What one individual import did (2.6, 2.9) — a restatement of the backend's `LegacyPatientImportResponse`. */
+export interface LegacyPatientImportResponse {
+  readonly imported: true;
+  readonly patientId: string;
+  readonly intakeStatus: string;
+}
+
+/**
+ * One row's own outcome from a bulk import (2.6): imported, or not with every
+ * field error collected in one pass. A restatement of the backend's
+ * `BulkImportRowResult` (`apps/api/src/legacy-patient-import/legacy-patient-import.service.ts`).
+ */
+export type BulkImportRowResult =
+  | {
+      readonly legacyId: string;
+      readonly imported: true;
+      readonly patientId: string;
+      readonly intakeStatus: IntakeStatus;
+    }
+  | { readonly legacyId: string; readonly imported: false; readonly errors: FieldError[] };

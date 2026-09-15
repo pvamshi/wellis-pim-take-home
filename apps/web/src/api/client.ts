@@ -1,13 +1,23 @@
 import type {
   ApplyRulesReport,
   ApproveReport,
+  BulkImportRowResult,
   DuplicateConfirmReport,
   DuplicateDetail,
   DuplicateDismissReport,
   DuplicateStatus,
   DuplicatesListResponse,
+  FieldError,
   HealthResponse,
+  IntakeStatus,
+  IntakeStep,
+  IntakeView,
+  LegacyPatientImportResponse,
   LegacySourceTable,
+  PatientOrigin,
+  ReviewDetail,
+  ReviewQueueEntry,
+  ReviewStatusResponse,
   ReviseFromRowReport,
   RowApproveAllReport,
   RowDeclineAllReport,
@@ -91,8 +101,8 @@ function describe(value: unknown): string {
 
 /** How one call differs from another: everything else about it is identical. */
 interface RequestOptions {
-  /** GET by default; the four presses are POST, because all four write. */
-  readonly method?: 'GET' | 'POST';
+  /** GET by default. `PATCH` is B5's per-step save (2.3) — the one write in this file that is not POST. */
+  readonly method?: 'GET' | 'POST' | 'PATCH';
   /**
    * The JSON body, when there is one. Omitted entirely for a press that sends
    * none — a rule-level approve takes no body at all, and a rule-level decline
@@ -153,6 +163,67 @@ async function requestJson<T>(url: string, options: RequestOptions = {}): Promis
 
   try {
     return (await response.json()) as T;
+  } catch (cause) {
+    if (isAbortError(cause)) throw cause;
+    throw new ApiError(
+      `The backend answered ${response.status} but the body is not JSON: ${describe(cause)}`,
+      response.status,
+      url,
+    );
+  }
+}
+
+/** A parsed JSON body, plus the status it came back with. */
+interface OutcomeResponse<T> {
+  readonly status: number;
+  readonly body: T;
+}
+
+/**
+ * Like `requestJson`, except the statuses in `allow` are not failures.
+ *
+ * B5's intake and B6's review endpoints answer a 409 or a 422 with a body the
+ * caller is meant to read — "not a draft", "email already in use", "that
+ * step's fields are invalid" — the same "services throw no HTTP exceptions,
+ * every outcome is a value" convention the backend itself follows (2.0),
+ * carried onto this side of the wire so a page never has to unwrap an
+ * `ApiError` to read a field error out of its message. Every status outside
+ * `allow` is still thrown as an `ApiError`, unchanged from `requestJson`:
+ * those remain failures with nothing structured on them to read.
+ */
+async function requestOutcome<T>(
+  url: string,
+  options: RequestOptions & { readonly allow?: readonly number[] } = {},
+): Promise<OutcomeResponse<T>> {
+  const { method = 'GET', body, signal, allow = [] } = options;
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method,
+      headers:
+        body === undefined
+          ? { Accept: 'application/json' }
+          : { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch (cause) {
+    if (isAbortError(cause)) throw cause;
+    throw new ApiError(`Could not reach ${url}: ${describe(cause)}`, null, url);
+  }
+
+  if (!response.ok && !allow.includes(response.status)) {
+    const statusText = response.statusText ? ` ${response.statusText}` : '';
+    throw new ApiError(
+      `The backend answered ${response.status}${statusText}.`,
+      response.status,
+      url,
+    );
+  }
+
+  try {
+    return { status: response.status, body: (await response.json()) as T };
   } catch (cause) {
     if (isAbortError(cause)) throw cause;
     throw new ApiError(
@@ -548,5 +619,250 @@ export async function confirmDuplicate(id: string): Promise<DuplicateConfirmRepo
 export async function dismissDuplicate(id: string): Promise<DuplicateDismissReport> {
   return await requestJson<DuplicateDismissReport>(duplicateUrl(id, '/dismiss'), {
     method: 'POST',
+  });
+}
+
+// === B5: the intake form (2.3, 2.9) =========================================
+
+/** The intakes URL (2.3.1). Built here for the same reason as `rulesUrl`. */
+export const intakesUrl = `${apiBaseUrl}/intakes`;
+
+/** The URL of one draft and of the two presses against it (2.3, 2.9). */
+export function intakeUrl(id: string, path = ''): string {
+  return `${intakesUrl}/${encodeURIComponent(id)}${path}`;
+}
+
+/** The 422 body's own shape (2.9): `{ message, errors }`. */
+interface ValidationErrorBody {
+  readonly message: string;
+  readonly errors: FieldError[];
+}
+
+export type IntakeCreateOutcome =
+  | { readonly outcome: 'created'; readonly view: IntakeView }
+  | { readonly outcome: 'invalid'; readonly errors: FieldError[] };
+
+/** Step 1 saved (2.3): creates the draft. `fields` are exactly step 1's own three questions. */
+export async function createIntake(fields: Record<string, unknown>): Promise<IntakeCreateOutcome> {
+  const { status, body } = await requestOutcome<IntakeView | ValidationErrorBody>(intakesUrl, {
+    method: 'POST',
+    body: fields,
+    allow: [422],
+  });
+
+  return status === 422
+    ? { outcome: 'invalid', errors: (body as ValidationErrorBody).errors }
+    : { outcome: 'created', view: body as IntakeView };
+}
+
+export type IntakePatchOutcome =
+  | { readonly outcome: 'saved'; readonly view: IntakeView }
+  | { readonly outcome: 'invalid'; readonly errors: FieldError[] }
+  /** No draft at this id — nonexistent or already past `draft` (2.9). */
+  | { readonly outcome: 'not-draft' };
+
+/** One step saved (2.3): `fields` are that step's own questions; `step` travels in the body, not the URL (2.9). */
+export async function patchIntakeStep(
+  id: string,
+  step: IntakeStep,
+  fields: Record<string, unknown>,
+): Promise<IntakePatchOutcome> {
+  const { status, body } = await requestOutcome<IntakeView | ValidationErrorBody>(intakeUrl(id), {
+    method: 'PATCH',
+    body: { step, ...fields },
+    allow: [409, 422],
+  });
+
+  if (status === 409) return { outcome: 'not-draft' };
+  if (status === 422) return { outcome: 'invalid', errors: (body as ValidationErrorBody).errors };
+  return { outcome: 'saved', view: body as IntakeView };
+}
+
+export type IntakeSubmitOutcome =
+  | { readonly outcome: 'submitted'; readonly view: IntakeView }
+  | { readonly outcome: 'invalid'; readonly errors: FieldError[] }
+  | { readonly outcome: 'not-draft' }
+  | { readonly outcome: 'email-taken'; readonly errors: FieldError[] };
+
+/**
+ * Validate all, `submitted` → `auto_*` (2.3, 2.9). The 409 branch covers two
+ * different backend outcomes sharing one status — "not a draft" (plain
+ * message, no `errors`) and "email already in use" (`{ message, errors }`,
+ * same shape a 422 carries) — so the two are told apart by whether the body
+ * actually has field errors on it, not by status alone.
+ */
+export async function submitIntake(id: string): Promise<IntakeSubmitOutcome> {
+  const { status, body } = await requestOutcome<IntakeView | ValidationErrorBody>(
+    intakeUrl(id, '/submit'),
+    { method: 'POST', allow: [409, 422] },
+  );
+
+  if (status === 409) {
+    const errors = (body as Partial<ValidationErrorBody>).errors;
+    return Array.isArray(errors) && errors.length > 0
+      ? { outcome: 'email-taken', errors }
+      : { outcome: 'not-draft' };
+  }
+
+  if (status === 422) return { outcome: 'invalid', errors: (body as ValidationErrorBody).errors };
+  return { outcome: 'submitted', view: body as IntakeView };
+}
+
+/** The patient's own neutral view (2.3, 2.9): resume by id, or read the "received" status. Null for an id naming no intake at all. */
+export async function getIntake(id: string, signal?: AbortSignal): Promise<IntakeView | null> {
+  const { status, body } = await requestOutcome<IntakeView | { message: string }>(intakeUrl(id), {
+    signal,
+    allow: [404],
+  });
+
+  return status === 404 ? null : (body as IntakeView);
+}
+
+// === B6: the review screen (2.4, 2.9) =======================================
+
+/** The review queue's URL (2.4). Built here for the same reason as `rowsUrl`. */
+export const reviewUrl = `${apiBaseUrl}/review/intakes`;
+
+/** The URL of one reviewed row and of the two presses against it (2.4). */
+export function reviewIntakeUrl(id: string, path = ''): string {
+  return `${reviewUrl}/${encodeURIComponent(id)}${path}`;
+}
+
+/** What the queue may be narrowed to (2.4). Both optional — absent means the backend's own default filter. */
+export interface ReviewQueueFilter {
+  readonly statuses?: readonly IntakeStatus[];
+  readonly origin?: PatientOrigin;
+}
+
+/**
+ * The review queue (2.4): the backend's default three statuses, or the
+ * caller's own subset, narrowed by origin — oldest submission first, already
+ * sorted by the endpoint.
+ */
+export async function getReviewQueue(
+  filter: ReviewQueueFilter = {},
+  signal?: AbortSignal,
+): Promise<ReviewQueueEntry[]> {
+  const params = new URLSearchParams();
+  if (filter.statuses !== undefined && filter.statuses.length > 0) {
+    params.set('status', filter.statuses.join(','));
+  }
+  if (filter.origin !== undefined) params.set('origin', filter.origin);
+
+  const query = params.toString();
+  return await requestJson<ReviewQueueEntry[]>(query === '' ? reviewUrl : `${reviewUrl}?${query}`, {
+    signal,
+  });
+}
+
+/**
+ * One row expanded (2.4): answers by step, every rule result, status history.
+ *
+ * Read once per visit and re-read after every press, the same rule
+ * `getRowDetail` and `getDuplicateDetail` follow: the screen's truth is what
+ * the backend says it is.
+ */
+export async function getReviewDetail(id: string, signal?: AbortSignal): Promise<ReviewDetail> {
+  return await requestJson<ReviewDetail>(reviewIntakeUrl(id), { signal });
+}
+
+export type ReviewStartOutcome =
+  | { readonly outcome: 'started'; readonly status: IntakeStatus }
+  /** The row is not `auto_*`, or names no patient at all (2.9: "409" either way). */
+  | { readonly outcome: 'conflict' };
+
+/** Start review (2.4): `auto_*` → `in_review`, `actor` recorded on the audit event. */
+export async function startReview(id: string, actor: string): Promise<ReviewStartOutcome> {
+  const { status, body } = await requestOutcome<ReviewStatusResponse>(reviewIntakeUrl(id, '/start'), {
+    method: 'POST',
+    body: { actor },
+    allow: [409],
+  });
+
+  return status === 409 ? { outcome: 'conflict' } : { outcome: 'started', status: body.status };
+}
+
+export type ReviewDecideOutcome =
+  | { readonly outcome: 'decided'; readonly status: IntakeStatus }
+  | { readonly outcome: 'conflict' }
+  | { readonly outcome: 'invalid'; readonly errors: FieldError[] };
+
+/** Approve or reject (2.4): `in_review` → `approved`/`rejected`. A blank note is a 422 the caller reads back, not a client-side guess at the backend's own rule. */
+export async function decideReview(
+  id: string,
+  decision: 'approved' | 'rejected',
+  note: string,
+  actor: string,
+): Promise<ReviewDecideOutcome> {
+  const { status, body } = await requestOutcome<ReviewStatusResponse | ValidationErrorBody>(
+    reviewIntakeUrl(id, '/decide'),
+    { method: 'POST', body: { decision, note, actor }, allow: [409, 422] },
+  );
+
+  if (status === 409) return { outcome: 'conflict' };
+  if (status === 422) return { outcome: 'invalid', errors: (body as ValidationErrorBody).errors };
+  return { outcome: 'decided', status: (body as ReviewStatusResponse).status };
+}
+
+// === B7: import on the rows screen (2.6, 2.9) ===============================
+
+/** The URL of one legacy patient row's individual import (2.6). */
+export function importPatientRowUrl(legacyId: string): string {
+  return `${rowsUrl}/patient/${encodeURIComponent(legacyId)}/import`;
+}
+
+/** The bulk import URL (2.6). */
+export const importPatientRowsUrl = `${rowsUrl}/import`;
+
+export type ImportRowOutcome =
+  | { readonly imported: true; readonly patientId: string; readonly intakeStatus: string }
+  | { readonly imported: false; readonly errors: FieldError[] };
+
+/**
+ * Individual import (2.6): one row, through the same flow as an intake.
+ *
+ * The route's own failures do not carry a field breakdown the way bulk's
+ * per-row `errors` does — a precondition failure is a 409 with a plain
+ * reason, and even a 422 is one field error at a time from the same
+ * `UnprocessableEntityException` shape every other endpoint uses. Both are
+ * normalized here into bulk's own `{ field, value, reason }` list, so the
+ * rows screen renders one failure list regardless of which button was
+ * pressed — the 409 becomes `{ field: null, value: null, reason }`, exactly
+ * the shape 2.6 already gives a bulk row that fails its precondition.
+ */
+export async function importPatientRow(legacyId: string, actor: string): Promise<ImportRowOutcome> {
+  const { status, body } = await requestOutcome<
+    LegacyPatientImportResponse | ValidationErrorBody | { message: string }
+  >(importPatientRowUrl(legacyId), { method: 'POST', body: { actor }, allow: [409, 422] });
+
+  if (status === 409) {
+    const reason =
+      typeof (body as { message?: unknown }).message === 'string'
+        ? (body as { message: string }).message
+        : 'This row no longer qualifies for import.';
+    return { imported: false, errors: [{ field: null, value: null, reason }] };
+  }
+
+  if (status === 422) {
+    return { imported: false, errors: (body as ValidationErrorBody).errors };
+  }
+
+  const created = body as LegacyPatientImportResponse;
+  return { imported: true, patientId: created.patientId, intakeStatus: created.intakeStatus };
+}
+
+/**
+ * Bulk import (2.6): each row in its own transaction, one bad row never
+ * blocking the rest. Always 200 — every row's own outcome is in the array,
+ * imported and failed alike, so there is nothing here to normalize the way
+ * `importPatientRow` has to.
+ */
+export async function importPatientRows(
+  legacyIds: readonly string[],
+  actor: string,
+): Promise<BulkImportRowResult[]> {
+  return await requestJson<BulkImportRowResult[]>(importPatientRowsUrl, {
+    method: 'POST',
+    body: { legacyIds, actor },
   });
 }

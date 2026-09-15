@@ -72,6 +72,12 @@ export interface RowDetailPanelProps {
    */
   readonly initialRejected: boolean;
   /**
+   * Whether the list showed this row as Imported (2.6) at the moment it was
+   * expanded — final, "no actions": every press below is hidden rather than
+   * merely disabled, the same way a settled duplicate link offers none.
+   */
+  readonly imported: boolean;
+  /**
    * Called after a press has landed, with one line saying what it did.
    *
    * The page above shows that line and re-reads its list — the same reason
@@ -122,6 +128,7 @@ export function RowDetailPanel({
   table,
   legacyId,
   initialRejected,
+  imported,
   onChanged,
 }: RowDetailPanelProps) {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
@@ -555,85 +562,98 @@ export function RowDetailPanel({
         })}
       </Stack>
 
-      <Group align="flex-end">
-        <Button color="green" onClick={onApproveAll} disabled={busy || !anyApprovable}>
-          Approve all
-        </Button>
-        <TextInput
-          size="sm"
-          label="Decline all"
-          placeholder="Why (optional)"
-          value={declineAllReason}
-          disabled={busy || !anyPending}
-          aria-label={`Reason for declining all of ${table} ${legacyId}`}
-          onChange={(event) => setDeclineAllReason(event.currentTarget.value)}
-        />
-        <Button color="red" variant="light" onClick={onDeclineAll} disabled={busy || !anyPending}>
-          Decline all
-        </Button>
-        {busy && <Loader size="sm" />}
-      </Group>
-
-      <Group align="flex-end">
-        {!rejected && (
-          <>
-            <TextInput
-              size="sm"
-              label="Reject"
-              placeholder="Why (optional)"
-              value={rejectReason}
-              disabled={busy}
-              aria-label={`Reason for rejecting ${table} ${legacyId}`}
-              onChange={(event) => setRejectReason(event.currentTarget.value)}
-            />
-            <Button color="red" onClick={onReject} disabled={busy}>
-              Reject
-            </Button>
-          </>
-        )}
-        {rejected && (
-          <Button variant="light" onClick={onUnreject} disabled={busy}>
-            Un-reject
-          </Button>
-        )}
-      </Group>
-
-      <Stack gap="xs">
-        <Text fw={600}>Edit a field by hand</Text>
-        <Text size="sm" c="dimmed">
-          {/*
-            1.6.7: a hand edit is written as a finding under a reserved rule
-            id, approved in the same transaction that writes it, so it shows
-            up above under "Hand edit" the next time this row is read.
-          */}
-          Written under the reserved &ldquo;Hand edit&rdquo; rule id, so the modification log
-          records it like any other change.
+      {imported && (
+        <Text size="sm" c="dimmed" fs="italic">
+          {/* 2.6: "Final: no actions" — this row is already a new patient entry; nothing below is offered. */}
+          This row has been imported as a new patient. No further action is offered here.
         </Text>
+      )}
+
+      {!imported && (
         <Group align="flex-end">
-          <Select
-            label="Column"
-            data={columns}
-            value={selectedColumn}
-            disabled={busy}
-            onChange={(value) => value !== null && onColumnChange(value, detail.dataRows)}
-          />
-          <TextInput
-            label="Value"
-            value={editValue}
-            disabled={busy || clearColumn}
-            onChange={(event) => setEditValue(event.currentTarget.value)}
-          />
-          <Checkbox
-            label="Clear this column"
-            checked={clearColumn}
-            disabled={busy}
-            onChange={(event) => setClearColumn(event.currentTarget.checked)}
-          />
-          <Button onClick={onSubmitEdit} disabled={busy || selectedColumn === null}>
-            Save
+          <Button color="green" onClick={onApproveAll} disabled={busy || !anyApprovable}>
+            Approve all
           </Button>
+          <TextInput
+            size="sm"
+            label="Decline all"
+            placeholder="Why (optional)"
+            value={declineAllReason}
+            disabled={busy || !anyPending}
+            aria-label={`Reason for declining all of ${table} ${legacyId}`}
+            onChange={(event) => setDeclineAllReason(event.currentTarget.value)}
+          />
+          <Button color="red" variant="light" onClick={onDeclineAll} disabled={busy || !anyPending}>
+            Decline all
+          </Button>
+          {busy && <Loader size="sm" />}
         </Group>
-      </Stack>
+      )}
+
+      {!imported && (
+        <Group align="flex-end">
+          {!rejected && (
+            <>
+              <TextInput
+                size="sm"
+                label="Reject"
+                placeholder="Why (optional)"
+                value={rejectReason}
+                disabled={busy}
+                aria-label={`Reason for rejecting ${table} ${legacyId}`}
+                onChange={(event) => setRejectReason(event.currentTarget.value)}
+              />
+              <Button color="red" onClick={onReject} disabled={busy}>
+                Reject
+              </Button>
+            </>
+          )}
+          {rejected && (
+            <Button variant="light" onClick={onUnreject} disabled={busy}>
+              Un-reject
+            </Button>
+          )}
+        </Group>
+      )}
+
+      {!imported && (
+        <Stack gap="xs">
+          <Text fw={600}>Edit a field by hand</Text>
+          <Text size="sm" c="dimmed">
+            {/*
+              1.6.7: a hand edit is written as a finding under a reserved rule
+              id, approved in the same transaction that writes it, so it shows
+              up above under "Hand edit" the next time this row is read.
+            */}
+            Written under the reserved &ldquo;Hand edit&rdquo; rule id, so the modification log
+            records it like any other change.
+          </Text>
+          <Group align="flex-end">
+            <Select
+              label="Column"
+              data={columns}
+              value={selectedColumn}
+              disabled={busy}
+              onChange={(value) => value !== null && onColumnChange(value, detail.dataRows)}
+            />
+            <TextInput
+              label="Value"
+              value={editValue}
+              disabled={busy || clearColumn}
+              onChange={(event) => setEditValue(event.currentTarget.value)}
+            />
+            <Checkbox
+              label="Clear this column"
+              checked={clearColumn}
+              disabled={busy}
+              onChange={(event) => setClearColumn(event.currentTarget.checked)}
+            />
+            <Button onClick={onSubmitEdit} disabled={busy || selectedColumn === null}>
+              Save
+            </Button>
+          </Group>
+        </Stack>
+      )}
 
       {/*
         Mounted only while a cross is waiting on an answer, and keyed by which
