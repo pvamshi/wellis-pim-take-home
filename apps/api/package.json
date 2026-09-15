@@ -9,6 +9,7 @@
     "import": "nest build && node dist/import/import-legacy.js",
     "revise": "nest build && node dist/revision/revision-cli.js",
     "rules-sync": "nest build && node dist/catalogue/catalogue-sync-cli.js",
+    "rule-effects": "nest build && node dist/rule-effects/rule-effects-cli.js",
     "test": "vitest run",
     "lint": "eslint ."
   },

@@ -8,6 +8,7 @@ export const meta = {
     { title: 'Revise', detail: 'write the next version, register it, apply the revision' },
     { title: 'Review', detail: 'independent check that the revision landed and nothing else moved' },
     { title: 'Commit', detail: 'one commit per revision, pushed, only once it passes' },
+    { title: 'Effects', detail: 'what the revised rules would do to the data, through the rule-effects workflow' },
   ],
 }
 
@@ -347,6 +348,24 @@ for (const entry of entries) {
   }
 }
 
+// A revised rule is seen before anyone presses Apply rules (1.5.3). By now the
+// revisions are committed and active, so what is left to know is what they
+// would do to the data — for a rule created alongside a revision too.
+const changedRules = [
+  ...new Set(revised.flatMap((entry) => [entry.built.ruleId, entry.built.newRuleId].filter(Boolean))),
+]
+let effects = null
+
+if (changedRules.length) {
+  phase('Effects')
+
+  try {
+    effects = await workflow('rule-effects', changedRules)
+  } catch (error) {
+    log(`effects: the rule-effects workflow did not run (${error.message}). Run it by hand with args ${JSON.stringify(changedRules)}.`)
+  }
+}
+
 return {
   queued: entries.length,
   revised: revised.map((entry) => ({
@@ -357,4 +376,5 @@ return {
   })),
   failed,
   commits,
+  effects,
 }

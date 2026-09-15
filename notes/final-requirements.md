@@ -538,9 +538,16 @@ Scenario: a rule gets a new version
   And which older-version findings stay pending
 ```
 
-`GET /rules/:ruleId/effects?from=&to=` answers it; the `rule-effects` workflow
-calls it after a rule changes and explains the result before anyone presses
-Apply rules.
+`GET /rules/:ruleId/effects?from=&to=` answers it, and `just rule-effects
+<ruleId>…` gives the same answer when no API is running.
+
+The `rule-effects` workflow is how it is seen. It finds the changed rules, runs
+their tests and saves their effects; a judge reads the examples against what
+each rule is meant to catch, and a challenger tries to prove that verdict wrong.
+Each rule comes back as safe to apply, look first, wrong, or no effect — a
+verdict the challenger overturns, or nobody checked, is look first. It writes
+nothing. The revision workflow (1.5.1) runs it on every rule it revises; by
+hand, it takes rule ids, or the rules changed most recently.
 
 ---
 

@@ -48,6 +48,16 @@ revise *ARGS:
 rules-sync:
     npm run rules-sync -w apps/api
 
+# The workspace script runs with the working directory at apps/api, as `revise`
+# does. It rebuilds the api first, so it is for when nothing is running: while
+# `just dev` is up, GET /rules/<ruleId>/effects gives the same answer without a
+# rebuild. --silent keeps npm's banner out of the JSON it prints. The
+# rule-effects workflow runs it, and it is safe by hand.
+
+# Show what each rule's newest version would do, compared with the one before
+rule-effects *ARGS:
+    npm run --silent rule-effects -w apps/api -- {{ARGS}}
+
 # --if-present is required: the web app has no test script by design, and its
 # absence must not fail this recipe.
 
