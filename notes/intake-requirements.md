@@ -277,8 +277,11 @@ Import = a new patient entry through the same flow as an intake. Resolves 2.c.
 - The legacy id names exactly one data row (1.0.3).
 - Its consent row (same legacy id) has no pending finding.
 - A confirmed duplicate X is already Import rejected (1.7.5), so it never qualifies.
+- No pending duplicate link names the row, on either side (1.7.3): confirming it
+  later would propose merges (1.7.7) into a row that takes no more findings.
 
-Failed precondition → 409 with the reason.
+Failed precondition → 409 with the reason; in bulk, that row's
+`errors: [{ field: null, value: null, reason }]`.
 
 ### Flow — one transaction per row
 
