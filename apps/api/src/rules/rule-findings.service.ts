@@ -15,6 +15,7 @@ import {
   LegacyPatientRule,
   type LegacyRuleRow,
 } from '../legacy/legacy-rule.entity';
+import { Patient } from '../patient/patient.entity';
 import type { RuleUpdate } from './rule-contract';
 import type { RuleRunResult } from './rule-runner.service';
 
@@ -113,7 +114,7 @@ export interface RuleFindingsReportEntry {
   readonly version: number;
   /** Updates the rule returned. */
   readonly found: number;
-  /** Dropped because the row is declined for this rule and column (1.2.9). */
+  /** Dropped because the row is declined for this rule and column (1.2.9), or is a legacy patient already imported (2.6). */
   readonly declined: number;
   /** Dropped because that exact address is already recorded. */
   readonly repeated: number;
@@ -341,6 +342,22 @@ async function loadLinked(
 }
 
 /**
+ * Every legacy patient id already imported into `patient` (2.6). An imported
+ * row is final, so nothing more is recorded against it — a merge proposed into
+ * it would never be applied.
+ */
+async function loadImported(manager: EntityManager): Promise<Set<string>> {
+  const rows = await manager
+    .getRepository(Patient)
+    .createQueryBuilder('patient')
+    .select('patient.legacyId', 'legacyId')
+    .where('patient.legacy_id IS NOT NULL')
+    .getRawMany<{ legacyId: string }>();
+
+  return new Set(rows.map((row) => row.legacyId));
+}
+
+/**
  * Sorts every update into declined, already recorded, or new, and every
  * duplicate finding into already linked or new — staging the new ones of each
  * — and returns one report entry per run entry.
@@ -348,7 +365,9 @@ async function loadLinked(
  * Updates keep the three outcomes this layer has always had:
  *
  * - **Declined** wins over everything. A row declined for this rule and column
- *   is declined forever (1.2.9), whatever version proposes the change next.
+ *   is declined forever (1.2.9), whatever version proposes the change next. A
+ *   legacy patient already imported (2.6) counts here too, as does any link
+ *   naming one: both are final.
  * - **Already recorded** is left exactly as it stands. Persistence only ever
  *   adds an address that was not there, so an approved row keeps its values and
  *   its status — rewriting one would contradict "acceptance is final" (1.2.11)
@@ -369,6 +388,7 @@ async function loadLinked(
 function classify(
   entries: ResolvedEntry[],
   linked: Set<string>,
+  imported: Set<string>,
 ): { report: RuleFindingsReport; duplicateStaged: QueryDeepPartialEntity<Duplicate>[] } {
   const duplicateStaged: QueryDeepPartialEntity<Duplicate>[] = [];
 
@@ -378,7 +398,10 @@ function classify(
     let written = 0;
 
     for (const { state, update } of entry.updates) {
-      if (state.declined.has(declineKey(update.legacyId, entry.ruleId, update.column))) {
+      if (
+        (update.table === 'patient' && imported.has(update.legacyId)) ||
+        state.declined.has(declineKey(update.legacyId, entry.ruleId, update.column))
+      ) {
         declined += 1;
         continue;
       }
@@ -414,7 +437,11 @@ function classify(
         duplicate.canonicalRowId,
       );
 
-      if (linked.has(key)) {
+      const namesImported =
+        duplicate.sourceTable === 'patient' &&
+        (imported.has(duplicate.duplicateLegacyId) || imported.has(duplicate.canonicalLegacyId));
+
+      if (namesImported || linked.has(key)) {
         linksSkipped += 1;
         continue;
       }
@@ -535,8 +562,9 @@ export class RuleFindingsService {
 
       await loadRecorded(manager, sources);
       const linked = await loadLinked(manager, duplicateSourceTables);
+      const imported = await loadImported(manager);
 
-      const { report, duplicateStaged } = classify(entries, linked);
+      const { report, duplicateStaged } = classify(entries, linked, imported);
 
       await writeStaged(manager, sources);
       await bulkInsert(manager.getRepository(Duplicate), duplicateStaged);

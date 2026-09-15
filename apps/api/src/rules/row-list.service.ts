@@ -10,10 +10,15 @@ import {
   type LegacyRuleRow,
 } from '../legacy/legacy-rule.entity';
 import type { LegacySourceTable } from '../legacy/legacy-source-table';
+import { Patient } from '../patient/patient.entity';
 import { RowRejection } from '../rows/row-rejection.entity';
 
-/** The three states a row can be in (1.6.1). */
-export type RowState = 'pending' | 'clean' | 'rejected';
+/**
+ * The four states a row can be in — 1.6.1's original three, plus B4's
+ * `imported` (2.6): "a legacy patient row is imported when `patient.legacy_id`
+ * names it." Precedence, per 2.6, is `imported > rejected > pending > clean`.
+ */
+export type RowState = 'imported' | 'pending' | 'clean' | 'rejected';
 
 /**
  * One line of the rows screen (1.6.1): a legacy row and the state it is in.
@@ -166,21 +171,27 @@ export class RowListService {
     const entries: RowListEntry[] = [];
 
     for (const source of sources) {
-      const [legacyIds, pendingIds, rejectedIds] = await Promise.all([
+      const [legacyIds, pendingIds, rejectedIds, importedIds] = await Promise.all([
         this.distinctIds(source.data, source.legacyIdProperty),
         this.distinctPendingIds(source.rules),
         this.rejectedIds(source.table),
+        // Only a legacy patient row is ever imported (2.6) — intake and
+        // consent rows "come with their patient" rather than having an
+        // imported state of their own.
+        source.table === 'patient' ? this.importedLegacyIds() : Promise.resolve(new Set<string>()),
       ]);
 
       for (const legacyId of legacyIds) {
         entries.push({
           table: source.table,
           legacyId,
-          state: rejectedIds.has(legacyId)
-            ? 'rejected'
-            : pendingIds.has(legacyId)
-              ? 'pending'
-              : 'clean',
+          state: importedIds.has(legacyId)
+            ? 'imported'
+            : rejectedIds.has(legacyId)
+              ? 'rejected'
+              : pendingIds.has(legacyId)
+                ? 'pending'
+                : 'clean',
         });
       }
     }
@@ -230,6 +241,19 @@ export class RowListService {
       .select('finding.legacyId', 'legacyId')
       .distinct(true)
       .where('finding.status = :status', { status: 'pending' })
+      .getRawMany<{ legacyId: string }>();
+
+    return new Set(rows.map((row) => row.legacyId));
+  }
+
+  /** Every legacy id a `patient` row's `legacy_id` names (2.6) — the derived, never-stored `imported` state. */
+  private async importedLegacyIds(): Promise<Set<string>> {
+    const rows = await this.dataSource
+      .getRepository(Patient)
+      .createQueryBuilder('patient')
+      .select('patient.legacyId', 'legacyId')
+      .where('patient.origin = :origin', { origin: 'legacy' })
+      .andWhere('patient.legacy_id IS NOT NULL')
       .getRawMany<{ legacyId: string }>();
 
     return new Set(rows.map((row) => row.legacyId));

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DuplicatesModule } from '../duplicates/duplicates.module';
 import { LegacyModule } from '../legacy/legacy.module';
+import { PatientModule } from '../patient/patient.module';
 import { RowsModule } from '../rows/rows.module';
 import { DuplicateDecisionsService } from './duplicate-decisions.service';
 import { DuplicateDetailService } from './duplicate-detail.service';
@@ -152,12 +153,18 @@ import { Rule } from './rule.entity';
  * `RowsModule` (already imported) to reject X on a confirmed patient link,
  * inside the same transaction, by handing that service the transaction's own
  * manager. Exported for `duplicate-actions/`, its endpoint's module.
+ *
+ * `PatientModule` is imported for `RowListService`'s one added read (B4,
+ * 2.6): a legacy patient row is `Imported` when some `patient.legacy_id`
+ * names it, so the fourth state needs `patient`, the one table in this join
+ * `LegacyModule`/`RowsModule`/`DuplicatesModule` do not already provide.
  */
 @Module({
   imports: [
     LegacyModule,
     RowsModule,
     DuplicatesModule,
+    PatientModule,
     TypeOrmModule.forFeature([Rule, RuleVersion]),
   ],
   providers: [

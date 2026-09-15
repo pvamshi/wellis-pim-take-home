@@ -12,9 +12,12 @@ import { DuplicatesListModule } from './duplicates-list/duplicates-list.module';
 import { DuplicatesModule } from './duplicates/duplicates.module';
 import { EligibilityModule } from './eligibility/eligibility.module';
 import { HealthModule } from './health/health.module';
+import { IntakeModule } from './intake/intake.module';
 import { LegacyImportModule } from './import/legacy-import.module';
 import { LegacyModule } from './legacy/legacy.module';
+import { LegacyPatientImportModule } from './legacy-patient-import/legacy-patient-import.module';
 import { PatientModule } from './patient/patient.module';
+import { ReviewModule } from './review/review.module';
 import { RowsModule } from './rows/rows.module';
 import { RowsListModule } from './rows-list/rows-list.module';
 import { RowActionsModule } from './row-actions/row-actions.module';
@@ -50,6 +53,9 @@ import { RulesModule } from './rules/rules.module';
     RowDetailModule,
     RowActionsModule,
     RowEditModule,
+    IntakeModule,
+    ReviewModule,
+    LegacyPatientImportModule,
   ],
 })
 export class AppModule {}

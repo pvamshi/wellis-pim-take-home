@@ -34,8 +34,9 @@ const filterableTables: Record<LegacySourceTable, true> = {
   consent: true,
 };
 
-/** The three states a row's `state` filter may name (1.6.1). */
+/** The four states a row's `state` filter may name (1.6.1, and B4's `imported`). */
 const filterableStates: Record<RowState, true> = {
+  imported: true,
   pending: true,
   clean: true,
   rejected: true,
@@ -69,7 +70,9 @@ function readState(value: unknown): RowState | undefined {
   }
 
   if (typeof value !== 'string' || !Object.hasOwn(filterableStates, value)) {
-    throw new BadRequestException('state must be one of "pending", "clean" or "rejected"');
+    throw new BadRequestException(
+      'state must be one of "imported", "pending", "clean" or "rejected"',
+    );
   }
 
   return value as RowState;

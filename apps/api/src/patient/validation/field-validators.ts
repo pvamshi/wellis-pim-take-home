@@ -51,6 +51,11 @@ export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/** Trim only, as 2.5's rule for `full_name` opens with — the counterpart of `normalizeEmail` for the field beside it. */
+export function normalizeFullName(value: string): string {
+  return value.trim();
+}
+
 export function validateEmail(value: unknown): FieldError | null {
   if (typeof value !== 'string') {
     return fieldError('email', value, 'email must be a string');
