@@ -313,8 +313,9 @@ Free text is never parsed into answers (I26, I29): `glp1_current`,
 
 - Individual: an Import button on each Import clean patient row →
   `POST /rows/patient/:legacyId/import`.
-- Bulk: a checkbox on each Import clean patient row, select-all over the loaded
-  clean rows, **Import selected** → `POST /rows/import` `{ legacyIds }`.
+- Bulk: a checkbox on each Import clean patient row, select-all over every
+  Import clean patient row (not only those loaded), **Import selected** →
+  `POST /rows/import` `{ legacyIds }`, sent in chunks with progress.
 - Bulk runs each row in its own transaction: one bad row never blocks the rest.
 - Response per row: `{ legacyId, imported: true, patientId, intakeStatus }` or
   `{ legacyId, imported: false, errors: [{ field, value, reason }] }`.
