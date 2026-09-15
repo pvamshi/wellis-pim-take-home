@@ -72,12 +72,6 @@ const FETCH_SIZE = 100;
  */
 const PREFETCH_WITHIN = 20;
 
-/** Page size when collecting every clean patient id for select-all — the backend's own `ROWS_MAX_LIMIT`. */
-const SELECT_ALL_PAGE = 500;
-
-/** Rows per bulk import request, so importing thousands shows progress instead of one long silent request. */
-const IMPORT_CHUNK = 100;
-
 /** A stable empty array, so the virtualiser is not rebuilt on every render. */
 const EMPTY_ROWS: RowListEntry[] = [];
 
@@ -149,10 +143,6 @@ export function RowsPage() {
   const [importFailures, setImportFailures] = useState<ReadonlyMap<string, readonly FieldError[]>>(
     new Map(),
   );
-  /** How many patient rows are Import clean right now, across the whole export — what select-all selects. */
-  const [cleanTotal, setCleanTotal] = useState(0);
-  /** True while select-all is collecting ids. */
-  const [selectingAll, setSelectingAll] = useState(false);
 
   function onStaffNameChange(value: string) {
     setStaffName(value);
@@ -169,10 +159,7 @@ export function RowsPage() {
   }
 
   /** One row done importing, either way (2.6): success drops it out of the selection and its failure list; a failure keeps it selected and records what went wrong. */
-  function settleImport(
-    legacyId: string,
-    outcome: { imported: true } | { imported: false; errors: readonly FieldError[] },
-  ) {
+  function settleImport(legacyId: string, outcome: { imported: true } | { imported: false; errors: readonly FieldError[] }) {
     setImporting((previous) => {
       const next = new Set(previous);
       next.delete(legacyId);
@@ -227,47 +214,38 @@ export function RowsPage() {
       });
   }
 
-  /** "Import selected" (2.6: `POST /rows/import`) — the ticked rows in chunks, each row in its own transaction on the backend, so one bad row never blocks the rest. */
-  async function onImportSelected() {
+  /** "Import selected" (2.6: `POST /rows/import`) — one request for every ticked row, each in its own transaction on the backend, so one bad row never blocks the rest. */
+  function onImportSelected() {
     const actor = staffName.trim();
     const legacyIds = [...selected];
     if (actor === '' || legacyIds.length === 0) return;
 
     setImporting((previous) => new Set([...previous, ...legacyIds]));
 
-    let imported = 0;
-    let settled = 0;
-
-    try {
-      for (let start = 0; start < legacyIds.length; start += IMPORT_CHUNK) {
-        const results: BulkImportRowResult[] = await importPatientRows(
-          legacyIds.slice(start, start + IMPORT_CHUNK),
-          actor,
-        );
-
+    importPatientRows(legacyIds, actor)
+      .then((results: BulkImportRowResult[]) => {
         for (const result of results) {
           settleImport(
             result.legacyId,
-            result.imported ? { imported: true } : { imported: false, errors: result.errors },
+            result.imported
+              ? { imported: true }
+              : { imported: false, errors: result.errors },
           );
         }
-
-        imported += results.filter((result) => result.imported).length;
-        settled += results.length;
+        const imported = results.filter((result) => result.imported).length;
         setLastOutcome(
-          `Imported ${imported} of ${legacyIds.length} selected row${legacyIds.length === 1 ? '' : 's'}${settled < legacyIds.length ? ' so far…' : '.'}`,
+          `Imported ${imported} of ${results.length} selected row${results.length === 1 ? '' : 's'}.`,
         );
-      }
-    } catch (cause: unknown) {
-      setImporting((previous) => {
-        const next = new Set(previous);
-        for (const legacyId of legacyIds) next.delete(legacyId);
-        return next;
+        if (imported > 0) refresh();
+      })
+      .catch((cause: unknown) => {
+        setImporting((previous) => {
+          const next = new Set(previous);
+          for (const legacyId of legacyIds) next.delete(legacyId);
+          return next;
+        });
+        setLastOutcome(cause instanceof ApiError ? cause.message : String(cause));
       });
-      setLastOutcome(cause instanceof ApiError ? cause.message : String(cause));
-    }
-
-    if (imported > 0) refresh();
   }
 
   const narrowing = {
@@ -301,18 +279,6 @@ export function RowsPage() {
 
     return () => controller.abort();
   }, [tableFilter, stateFilter, attempt]);
-
-  // How many clean patient rows exist, whatever the filters show — re-read
-  // after every press, since an import or a decision changes it.
-  useEffect(() => {
-    const controller = new AbortController();
-
-    getRows({ table: 'patient', state: 'clean', offset: 0, limit: 1 }, controller.signal)
-      .then((response) => setCleanTotal(response.total))
-      .catch(() => undefined);
-
-    return () => controller.abort();
-  }, [attempt]);
 
   /**
    * The next window, appended to what is already loaded.
@@ -381,43 +347,24 @@ export function RowsPage() {
    */
   const rows = state.kind === 'loaded' ? state.rows : EMPTY_ROWS;
 
-  // Select-all covers every clean patient row (2.6), not only the loaded
-  // window: the ids are fetched page by page, so nobody has to scroll first.
-  const allCleanSelected = cleanTotal > 0 && selected.size >= cleanTotal;
-
-  async function cleanPatientIds(): Promise<string[]> {
-    const ids: string[] = [];
-
-    for (let offset = 0; ; offset += SELECT_ALL_PAGE) {
-      const page = await getRows({
-        table: 'patient',
-        state: 'clean',
-        offset,
-        limit: SELECT_ALL_PAGE,
-      });
-      ids.push(...page.rows.map((row) => row.legacyId));
-
-      if (page.rows.length === 0 || ids.length >= page.total) return ids;
-    }
-  }
+  // Select-all is over what is loaded, not the whole filtered set (1.6.1's
+  // scroll-as-you-go universe has no fixed size to select "all" of) — 2.6
+  // says exactly this: "select-all over the loaded clean patient rows".
+  const loadedCleanPatientIds = rows
+    .filter((row) => row.table === 'patient' && row.state === 'clean')
+    .map((row) => row.legacyId);
+  const allLoadedCleanSelected =
+    loadedCleanPatientIds.length > 0 && loadedCleanPatientIds.every((id) => selected.has(id));
 
   function onSelectAllChange(checked: boolean) {
-    if (!checked) {
-      setSelected(new Set());
-      return;
-    }
-
-    setSelectingAll(true);
-
-    cleanPatientIds()
-      .then((ids) => {
-        setSelected(new Set(ids));
-        setCleanTotal(ids.length);
-      })
-      .catch((cause: unknown) => {
-        setLastOutcome(cause instanceof ApiError ? cause.message : String(cause));
-      })
-      .finally(() => setSelectingAll(false));
+    setSelected((previous) => {
+      const next = new Set(previous);
+      for (const id of loadedCleanPatientIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
   }
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -492,18 +439,14 @@ export function RowsPage() {
             value={staffName}
             onChange={(event) => onStaffNameChange(event.currentTarget.value)}
           />
-          <Group gap="xs" wrap="nowrap">
-            <Checkbox
-              label={`Select all clean patient rows (${cleanTotal})`}
-              checked={allCleanSelected}
-              indeterminate={selected.size > 0 && !allCleanSelected}
-              disabled={cleanTotal === 0 || selectingAll}
-              onChange={(event) => onSelectAllChange(event.currentTarget.checked)}
-            />
-            {selectingAll && <Loader size="xs" />}
-          </Group>
+          <Checkbox
+            label="Select all loaded clean patient rows"
+            checked={allLoadedCleanSelected}
+            disabled={loadedCleanPatientIds.length === 0}
+            onChange={(event) => onSelectAllChange(event.currentTarget.checked)}
+          />
           <Button
-            onClick={() => void onImportSelected()}
+            onClick={onImportSelected}
             disabled={selected.size === 0 || staffName.trim() === ''}
             loading={importing.size > 0 && [...selected].some((id) => importing.has(id))}
           >
