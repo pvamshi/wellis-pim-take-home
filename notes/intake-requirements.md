@@ -18,7 +18,7 @@ table** `patient`. Two ways in, one flow after: an intake is written into
 | Module | Owns |
 |---|---|
 | `patient` | `patient` table; intake flow; `intake_status` state machine |
-| `eligibility` | ruleset registry (code, versioned), `evaluate(patient)` |
+| `eligibility` | ruleset registry (code, versioned), `evaluate(patient, consentEvents)` |
 | `consent` | `consent_event` table |
 | `audit` | `audit_event` table, append-only writer |
 | `legacy-import` | legacy patient → `patient`, individual and bulk |
@@ -290,7 +290,8 @@ Failed precondition → 409 with the reason; in bulk, that row's
 3. Insert the patient's legacy consent events, skipping confirmed duplicate rows
    (1.7.5). An event failing 2.1.2's constraints fails the import with a field
    error naming that event.
-4. Evaluate (2.7): `submitted` → `auto_*`, into the review queue like any intake.
+4. Evaluate (2.7) with the consent events inserted in step 3: `submitted` →
+   `auto_*`, into the review queue like any intake.
 5. `audit_event` for the import and the transition, actor = staff name.
 
 ### Mapping
@@ -355,6 +356,7 @@ for a human; a ruleset classifies a submission on the spot.
 | E3 | 27.0 ≤ BMI ≤ 30.0 and `weight_conditions` = none | flag | `flagged: BMI 27.4 with no weight-related condition` |
 | E4 | `glp1_current` yes | flag | `flagged: currently using a GLP-1 medication (semaglutide)` |
 | E5 | thyroid cancer or pancreatitis history | flag | `flagged: self-reported history of pancreatitis` |
+| E6 | latest `data_processing` consent event (by `at`) is `revoked` | reject | `rejected: data processing consent revoked on 2024-03-02` |
 | — | nothing matched | clear | `cleared: no rule matched, for doctor review` |
 
 - **A missing answer never clears a rule.** A null answer a rule needs matches it
@@ -364,7 +366,10 @@ for a human; a ruleset classifies a submission on the spot.
   E2, and E3 reads the missing BMI as not matched. `auto_rejected` can still be
   reviewed (2.2).
 - Outcome: any reject → `auto_rejected`; else any flag → `auto_flagged`; else `auto_cleared`.
-- All five always run; every result stored, so a reviewer sees every reason.
+- E6 with no consent event at all is a missing answer: `flagged: data
+  processing consent not recorded (legacy)`. An intake always has a granted
+  event (step 5), so E6 only ever matches legacy imports.
+- All six always run; every result stored, so a reviewer sees every reason.
 - Age: whole years from `date_of_birth` to the submission date, UTC.
 - BMI **compared rounded** — otherwise 26.96 shows "27.0" and rejects as below 27.
 
