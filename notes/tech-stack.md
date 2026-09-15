@@ -10,9 +10,13 @@ Anything still open lives in `unresolved-questions.md`, never here as a guess.
 
 ### 4.1 Frontend
 - React + TypeScript, built with Vite.
-- Mantine as the component library, core packages only.
+- Mantine as the component library: `@mantine/core`, plus `@mantine/form` for the
+  multi-step intake form's state and per-step validation (intake 2.5).
 - No data grid library. Mantine's `Table` is a styling primitive, not a grid, and
   our tables are simple. Revisit only when a real need appears.
+- `@tanstack/react-virtual` for long lists. Mantine core has no virtualiser; it
+  is headless, so it draws into Mantine's own `Table` and `Accordion` markup
+  rather than replacing them.
 - Routing: `react-router-dom`. Plain nested routes, no data loaders, no framework
   mode. We need a handful of screens, not a routing architecture.
 
