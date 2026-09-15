@@ -255,10 +255,10 @@ describe('the row detail', () => {
         description: 'A description',
         ambiguous: false,
         version: 1,
-        pending: [
-          { column: 'email', previousValue: 'old@x.nl', nextValue: 'new@x.nl' },
+        pending: [{ column: 'email', previousValue: 'old@x.nl', nextValue: 'new@x.nl' }],
+        settled: [
+          { column: 'phone', previousValue: '06-1', nextValue: '+31-6-1', status: 'approved' },
         ],
-        settled: [{ column: 'phone', previousValue: '06-1', nextValue: '+31-6-1' }],
       },
       {
         ruleId: 'R-B',
@@ -268,7 +268,12 @@ describe('the row detail', () => {
         version: 1,
         pending: [],
         settled: [
-          { column: 'city', previousValue: 'Rotterdam', nextValue: 'Amsterdam' },
+          {
+            column: 'city',
+            previousValue: 'Rotterdam',
+            nextValue: 'Amsterdam',
+            status: 'declined',
+          },
         ],
       },
     ]);
@@ -417,9 +422,11 @@ describe('the row detail', () => {
     const second = await loadRow('patient', 'P-ORDER');
 
     // Groups ordered by ruleId ASC then version ASC.
-    expect(
-      first.body.findings.map((group) => `${group.ruleId}/${group.version}`),
-    ).toEqual(['R-X/1', 'R-Y/1', 'R-Y/2']);
+    expect(first.body.findings.map((group) => `${group.ruleId}/${group.version}`)).toEqual([
+      'R-X/1',
+      'R-Y/1',
+      'R-Y/2',
+    ]);
     expect(second.body.findings).toEqual(first.body.findings);
   });
 });

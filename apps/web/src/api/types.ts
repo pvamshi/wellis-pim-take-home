@@ -315,10 +315,8 @@ export interface RowDetailFinding {
  * One rule's findings against one row (1.6.3), bucketed into what is still
  * waiting and what is already settled.
  *
- * A restatement of the backend's `RowDetailRuleGroup`. `settled` merges
- * approved and declined into one bucket, deliberately: a declined finding is
- * exactly as settled as an approved one on this screen, unlike the rules
- * screen's own "Approved" section.
+ * A restatement of the backend's `RowDetailRuleGroup`. `settled` holds
+ * approved and declined findings together, each with its own `status`.
  */
 export interface RowDetailRuleGroup {
   readonly ruleId: string;
@@ -331,7 +329,17 @@ export interface RowDetailRuleGroup {
   /** Findings still awaiting a decision (1.6.3). Empty when there are none. */
   readonly pending: RowDetailFinding[];
   /** Findings already approved or declined. Empty when there are none. */
-  readonly settled: RowDetailFinding[];
+  readonly settled: RowDetailSettledFinding[];
+}
+
+/** A finding already decided, for the row's log. A restatement of the backend's `RowDetailSettledFinding`. */
+export interface RowDetailSettledFinding {
+  readonly column: string;
+  readonly previousValue: string | null;
+  /** What the rule proposed or, on an ambiguous rule, what a human supplied; null when nothing was. */
+  readonly nextValue: string | null;
+  /** Approved wrote `nextValue` to the row; declined kept `previousValue`. */
+  readonly status: 'approved' | 'declined';
 }
 
 /**

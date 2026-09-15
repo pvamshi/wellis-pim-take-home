@@ -18,6 +18,7 @@ import type {
   RowDetailFinding,
   RowDetailResponse,
   RowDetailRuleGroup,
+  RowDetailSettledFinding,
   RowRejectionReport,
   RuleDetailRow,
   RuleRowAddress,
@@ -25,6 +26,7 @@ import type {
 import { DeclineDialog, type DeclineDecision } from './DeclineDialog';
 import { ReasonDialog } from './ReasonDialog';
 import { RuleRowsTable } from './RuleRowsTable';
+import { DiffValue, diffValues, type DiffPiece } from './ValueDiff';
 
 type RequestState =
   | { kind: 'loading' }
@@ -82,10 +84,28 @@ function toRuleDetailRow(
   };
 }
 
+/** One resolved problem on the row's log. */
+interface LogEntry extends RowDetailSettledFinding {
+  readonly key: string;
+  readonly ruleName: string;
+}
+
+/** Both sides of a log line: compared when both hold a value, otherwise wholly one side. */
+function logPieces(entry: LogEntry): { before: DiffPiece[] | null; after: DiffPiece[] | null } {
+  const { previousValue: before, nextValue: after } = entry;
+
+  if (before !== null && after !== null) return diffValues(before, after);
+
+  return {
+    before: before === null ? null : [{ text: before, changed: true }],
+    after: after === null ? null : [{ text: after, changed: true }],
+  };
+}
+
 /**
  * One expanded row (1.6.3–1.6.7), laid out as a record page: a status line
- * with the row's actions, its values as a field/value table edited inline, and
- * its findings grouped by rule.
+ * with the row's actions, its values as a field/value table edited inline, its
+ * open problems grouped by rule, and a log of the problems already resolved.
  *
  * Row-wide presses that settle many things at once (Decline all, Reject) ask
  * for confirmation and an optional reason in a dialog; nothing is a
@@ -337,8 +357,17 @@ export function RowDetailPanel({
         ? 'Rejected. This patient will not be imported.'
         : 'Rejected.'
       : pendingCount > 0
-        ? `${count(pendingCount, 'finding')} waiting for a decision.`
-        : 'Nothing waiting for a decision.';
+        ? `${count(pendingCount, 'open problem')}.`
+        : 'No open problems.';
+
+  const openGroups = detail.findings.filter((group) => group.pending.length > 0);
+  const log: LogEntry[] = detail.findings.flatMap((group) =>
+    group.settled.map((finding) => ({
+      ...finding,
+      key: `${group.ruleId}:${group.version}:${finding.column}`,
+      ruleName: group.ruleName,
+    })),
+  );
 
   return (
     <Stack gap="lg">
@@ -530,16 +559,13 @@ export function RowDetailPanel({
         </Table.ScrollContainer>
       </Stack>
 
-      {detail.findings.length > 0 && (
+      {openGroups.length > 0 && (
         <Stack gap="md">
           <Text fw={600} size="sm">
-            Findings
+            Open problems
           </Text>
-          {detail.findings.map((group) => {
+          {openGroups.map((group) => {
             const pendingRows = group.pending.map((finding) =>
-              toRuleDetailRow(table, legacyId, finding),
-            );
-            const settledRows = group.settled.map((finding) =>
               toRuleDetailRow(table, legacyId, finding),
             );
 
@@ -559,45 +585,81 @@ export function RowDetailPanel({
                   )}
                 </Group>
 
-                {pendingRows.length > 0 && (
-                  <RuleRowsTable
-                    rows={pendingRows}
-                    hideRowIdentity
-                    ambiguous={group.ambiguous}
-                    description={group.description}
-                    actions={
-                      editable
-                        ? {
-                            onApprove: (row) => onFindingApprove(group, row),
-                            onDecline: (row) => onFindingDecline(group, row),
-                            onApproveWithValue: (row, value) =>
-                              onFindingApproveWithValue(group, row, value),
-                            onDeclineWithReason: (row, reason) =>
-                              onFindingDeclineWithReason(group, row, reason),
-                            busy,
-                          }
-                        : undefined
-                    }
-                  />
-                )}
-
-                {settledRows.length > 0 && (
-                  <Stack gap={4}>
-                    {/* "Settled", not "Approved": the backend merges approved and declined into one bucket. */}
-                    <Text size="xs" c="dimmed" fw={600}>
-                      Settled
-                    </Text>
-                    <RuleRowsTable
-                      rows={settledRows}
-                      hideRowIdentity
-                      ambiguous={group.ambiguous}
-                      description={group.description}
-                    />
-                  </Stack>
-                )}
+                <RuleRowsTable
+                  rows={pendingRows}
+                  hideRowIdentity
+                  ambiguous={group.ambiguous}
+                  description={group.description}
+                  actions={
+                    editable
+                      ? {
+                          onApprove: (row) => onFindingApprove(group, row),
+                          onDecline: (row) => onFindingDecline(group, row),
+                          onApproveWithValue: (row, value) =>
+                            onFindingApproveWithValue(group, row, value),
+                          onDeclineWithReason: (row, reason) =>
+                            onFindingDeclineWithReason(group, row, reason),
+                          busy,
+                        }
+                      : undefined
+                  }
+                />
               </Stack>
             );
           })}
+        </Stack>
+      )}
+
+      {log.length > 0 && (
+        <Stack gap="xs">
+          <Text fw={600} size="sm">
+            Log
+          </Text>
+          <Text size="xs" c="dimmed">
+            Problems already resolved on this row. Accepted changes were written to the row;
+            declined ones kept the value it had.
+          </Text>
+          <Table.ScrollContainer minWidth={560}>
+            <Table withTableBorder verticalSpacing={6}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th w={110}>Result</Table.Th>
+                  <Table.Th>Problem</Table.Th>
+                  <Table.Th w={130}>Column</Table.Th>
+                  <Table.Th>Before</Table.Th>
+                  <Table.Th>After</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {log.map((entry) => {
+                  const pieces = logPieces(entry);
+                  const accepted = entry.status === 'approved';
+
+                  return (
+                    <Table.Tr key={entry.key}>
+                      <Table.Td>
+                        <Badge variant="light" color={accepted ? 'green' : 'gray'}>
+                          {accepted ? 'Accepted' : 'Declined'}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{entry.ruleName}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{entry.column}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <DiffValue pieces={pieces.before} tone={accepted ? 'removed' : 'plain'} />
+                      </Table.Td>
+                      <Table.Td>
+                        <DiffValue pieces={pieces.after} tone={accepted ? 'added' : 'plain'} />
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Stack>
       )}
 
@@ -612,8 +674,8 @@ export function RowDetailPanel({
 
       {dialog === 'declineAll' && (
         <ReasonDialog
-          title={`Decline all findings on ${legacyId}`}
-          message={`Every pending finding on this row (${pendingCount}) is declined, and no rule will propose it again.`}
+          title={`Decline all open problems on ${legacyId}`}
+          message={`All ${count(pendingCount, 'open problem')} on this row are declined: the row keeps its values, and no rule raises them again.`}
           confirmLabel="Decline all"
           color="red"
           onCancel={() => setDialog(null)}
