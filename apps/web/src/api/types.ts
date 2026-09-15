@@ -412,3 +412,106 @@ export interface RowEditReport {
   /** The finding's own version, unique per `(legacyId, ruleId, column)`. */
   readonly version: number;
 }
+
+/** A link's status (1.7.3). `pending` → `confirmed` | `dismissed`, both final. */
+export type DuplicateStatus = 'pending' | 'confirmed' | 'dismissed';
+
+/**
+ * One physical row's own column values (1.7.4), keyed by database column
+ * name, matching `LegacyRowValues`'s own shape.
+ *
+ * A restatement of the backend's `DuplicateRowValues`
+ * (`apps/api/src/rules/duplicate-detail.service.ts`), declared fresh rather
+ * than reused as an alias of `LegacyRowValues` — the backend's own comment on
+ * that type makes the same choice, deliberately, for the same reason.
+ */
+export type DuplicateRowValues = Record<string, string | null>;
+
+/**
+ * One line of the duplicates screen (1.7.4): source, X, Y, and the rule that
+ * found the link.
+ *
+ * A restatement of the backend's `DuplicateListEntry`
+ * (`apps/api/src/rules/duplicate-list.service.ts`).
+ */
+export interface DuplicateListEntry {
+  readonly id: string;
+  readonly table: LegacySourceTable;
+  /** X — the id that duplicates, as a human reads it. */
+  readonly duplicateLegacyId: string;
+  /** Y — the one that survives, as a human reads it. */
+  readonly canonicalLegacyId: string;
+  readonly ruleId: string;
+  readonly ruleName: string;
+  readonly status: DuplicateStatus;
+}
+
+/**
+ * The backend's `GET /duplicates` response: every link the current filter
+ * matches, and how many there are in all (1.7.4).
+ *
+ * Not a page, for the same reason `RowsListResponse` is not: the screen
+ * virtualises the list.
+ */
+export interface DuplicatesListResponse {
+  readonly links: DuplicateListEntry[];
+  readonly total: number;
+}
+
+/**
+ * One side of an expanded link (1.7.4): the id as a human reads it, and that
+ * row's own values.
+ *
+ * A restatement of the backend's `DuplicateDetailRow`.
+ */
+export interface DuplicateDetailRow {
+  readonly legacyId: string;
+  readonly values: DuplicateRowValues;
+}
+
+/**
+ * A link expanded (1.7.4): both physical rows, side by side, every column.
+ *
+ * A restatement of the backend's `DuplicateDetail`
+ * (`apps/api/src/rules/duplicate-detail.service.ts`), the `GET
+ * /duplicates/:id` response.
+ */
+export interface DuplicateDetail {
+  readonly id: string;
+  readonly table: LegacySourceTable;
+  readonly status: DuplicateStatus;
+  readonly ruleId: string;
+  readonly ruleName: string;
+  /** Integer, matching `rule_version.version` — the version that found this link. */
+  readonly version: number;
+  /** X — the row that duplicates. */
+  readonly duplicate: DuplicateDetailRow;
+  /** Y — the one that survives. */
+  readonly canonical: DuplicateDetailRow;
+}
+
+/**
+ * What one press of Confirm did (1.7.5). Informational — the panel always
+ * re-reads the detail after a press.
+ *
+ * A restatement of the backend's `DuplicateConfirmReport`
+ * (`apps/api/src/rules/duplicate-decisions.service.ts`).
+ */
+export interface DuplicateConfirmReport {
+  readonly outcome: 'confirmed';
+  readonly id: string;
+  readonly status: 'confirmed';
+  /** True only for a patient link, where confirming also rejects X (1.7.5). */
+  readonly rejected: boolean;
+}
+
+/**
+ * What one press of Dismiss did (1.7.6). Informational.
+ *
+ * A restatement of the backend's `DuplicateDismissReport`.
+ */
+export interface DuplicateDismissReport {
+  readonly outcome: 'dismissed';
+  readonly id: string;
+  readonly status: 'dismissed';
+}

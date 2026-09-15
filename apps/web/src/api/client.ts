@@ -1,6 +1,11 @@
 import type {
   ApplyRulesReport,
   ApproveReport,
+  DuplicateConfirmReport,
+  DuplicateDetail,
+  DuplicateDismissReport,
+  DuplicateStatus,
+  DuplicatesListResponse,
   HealthResponse,
   LegacySourceTable,
   ReviseFromRowReport,
@@ -456,5 +461,92 @@ export async function editRow(
   return await requestJson<RowEditReport>(rowUrl(table, legacyId, '/edit'), {
     method: 'POST',
     body: { column, value },
+  });
+}
+
+/** The duplicates-list URL (1.7.4). Built here for the same reason as `rowsUrl`. */
+export const duplicatesUrl = `${apiBaseUrl}/duplicates`;
+
+/**
+ * The URL of one link and of the presses against it (1.7.4-1.7.6). A link id
+ * is data — it comes from the list, not from a literal — so it is encoded
+ * rather than concatenated raw, the same reason `ruleUrl` encodes a rule id.
+ */
+export function duplicateUrl(id: string, path = ''): string {
+  return `${duplicatesUrl}/${encodeURIComponent(id)}${path}`;
+}
+
+/**
+ * What the duplicates screen's list may be narrowed to (1.7.4), and which
+ * window of it is wanted. Declared locally rather than in `types.ts`, the
+ * same choice `RowsListFilter` makes: this shape is the client's own request,
+ * not a restatement of a backend response.
+ */
+export interface DuplicatesListFilter {
+  readonly table?: LegacySourceTable;
+  readonly status?: DuplicateStatus;
+  /** How many links to skip — where the next fetch of a scrolling list starts. */
+  readonly offset?: number;
+  /** How many to ask for. The backend has its own default and its own cap. */
+  readonly limit?: number;
+}
+
+/**
+ * The duplicates screen's list (1.7.4), narrowed by whatever filter is given.
+ *
+ * `table` and `status` are left out of the query string entirely when unset,
+ * matching the backend's own "absent means no narrowing" reading
+ * (`duplicates-list.controller.ts`'s `readTable`/`readStatus`) — the same
+ * convention `getRows` already follows for its own filter.
+ */
+export async function getDuplicates(
+  filter: DuplicatesListFilter = {},
+  signal?: AbortSignal,
+): Promise<DuplicatesListResponse> {
+  const params = new URLSearchParams();
+  if (filter.table !== undefined) params.set('table', filter.table);
+  if (filter.status !== undefined) params.set('status', filter.status);
+  if (filter.offset !== undefined) params.set('offset', String(filter.offset));
+  if (filter.limit !== undefined) params.set('limit', String(filter.limit));
+
+  const query = params.toString();
+  return await requestJson<DuplicatesListResponse>(
+    query === '' ? duplicatesUrl : `${duplicatesUrl}?${query}`,
+    { signal },
+  );
+}
+
+/**
+ * One link expanded: both physical rows, side by side, every column (1.7.4).
+ *
+ * Read once per expand and re-read after every press, the same rule
+ * `getRuleDetail` and `getRowDetail` follow: the screen's truth is what the
+ * backend says it is.
+ */
+export async function getDuplicateDetail(
+  id: string,
+  signal?: AbortSignal,
+): Promise<DuplicateDetail> {
+  return await requestJson<DuplicateDetail>(duplicateUrl(id), { signal });
+}
+
+/**
+ * Confirm a pending link (1.7.5): the link is confirmed, and a patient
+ * link's X is rejected alongside it — the report's own `rejected` field says
+ * which happened. No body: which link to confirm is entirely in the URL.
+ */
+export async function confirmDuplicate(id: string): Promise<DuplicateConfirmReport> {
+  return await requestJson<DuplicateConfirmReport>(duplicateUrl(id, '/confirm'), {
+    method: 'POST',
+  });
+}
+
+/**
+ * Dismiss a pending link (1.7.6): the link is dismissed and never recorded
+ * again. Neither row changes.
+ */
+export async function dismissDuplicate(id: string): Promise<DuplicateDismissReport> {
+  return await requestJson<DuplicateDismissReport>(duplicateUrl(id, '/dismiss'), {
+    method: 'POST',
   });
 }
