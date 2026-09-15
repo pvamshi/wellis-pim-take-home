@@ -8,17 +8,21 @@ Part B, new patient intake. Nothing here is final until moved into
 
 ## 2.0 Architecture
 
+Two homes for patient data: the **legacy tables** (as imported) and the **main
+table** `patient`. An intake is written into `patient` from its first step. A
+legacy row enters `patient` only by acceptance, and only with good data. The two
+paths are independent.
+
 ### Backend modules
 
 | Module | Owns |
 |---|---|
-| `patient` | `patient` table; create-or-link on approval and on acceptance |
-| `intake` | `intake` table, questionnaire `q2026.1`, state machine, submit |
-| `eligibility` | ruleset registry (code, versioned), `evaluate(intake)` |
+| `patient` | `patient` table; intake flow; `intake_status` state machine |
+| `eligibility` | ruleset registry (code, versioned), `evaluate(patient)` |
 | `consent` | `consent_event` table |
 | `audit` | `audit_event` table, append-only writer |
-| `acceptance` | `row_acceptance` table, legacy → final mapping |
-| `review` | review endpoints over `intake` |
+| `acceptance` | legacy → `patient` / `consent_event` mapping |
+| `review` | review endpoints over `patient` |
 
 Existing and unchanged: `legacy`, `rules`, `rows`.
 
@@ -40,84 +44,65 @@ Existing and unchanged: `legacy`, `rules`, `rows`.
   the same transaction.
 - Services own transactions; controllers check request shape; services throw no
   HTTP exceptions (Part A convention).
-- `@mantine/form` added for the form — amends tech-stack 4.1.
+- `@mantine/form` for the form (tech-stack 4.1).
 
 ---
 
-## 2.1 The final tables
-
-One `patient` table for both origins. A legacy row enters it by acceptance (2.6),
-an intake by approval (2.4) — both pass the same validation (2.5). Resolves the
-earlier open question.
+## 2.1 The main table
 
 ### 2.1.1 `patient`
 
 | Column | Type | Constraint |
 |---|---|---|
 | `id` | text | uuid, PK |
+| `intake_status` | text | not null, `CHECK` on the 8 states (2.2) |
+| `origin` | text | not null, `CHECK IN (intake, legacy)` |
 | `full_name` | text | not null |
 | `email` | text | not null, unique, lowercased |
 | `date_of_birth` | text | `YYYY-MM-DD`, not null |
+| `height_cm` | real | null, 1 dp |
+| `weight_kg` | real | null, 1 dp |
+| `bmi` | real | null, 1 dp |
+| `glp1_current` | integer | boolean, null |
+| `glp1_medications` | text | simple-json `string[]` |
+| `other_medications` | text | null |
+| `weight_conditions` | text | simple-json `string[]` |
+| `thyroid_cancer_history` | integer | boolean, null |
+| `pancreatitis_history` | integer | boolean, null |
+| `other_conditions` | text | null |
+| `alcohol_units_week` | integer | null |
+| `questionnaire_version` | text | null for legacy |
+| `ruleset_version` | text | null until evaluated |
+| `evaluation` | text | simple-json `[{ruleId, matched, outcome, explanation}]` |
 | `sex` | text | null, `CHECK IN ('M','F')` (P23 canonical) |
 | `bsn` | text | null, legacy only |
 | `phone` | text | null, E.164 |
 | `city` | text | null |
-| `height_cm` | real | null, last known |
-| `weight_kg` | real | null, last known |
-| `account_status` | text | not null, `CHECK IN (active, paused, churned, prospect)` |
+| `account_status` | text | not null, `CHECK IN (active, paused, churned, prospect)`; intake → `prospect` |
 | `signup_date` | text | null, `YYYY-MM-DD` |
 | `acquisition_source` | text | null, lowercased (legacy `source`) |
-| `origin` | text | not null, `CHECK IN (legacy, intake)` |
-| `legacy_source_table` | text | null |
-| `legacy_id` | text | null; `(legacy_source_table, legacy_id)` unique when set |
-| `created_at`, `updated_at` | text | ISO UTC |
+| `legacy_id` | text | null, unique |
+| `created_at`, `submitted_at`, `decided_at`, `updated_at` | text | ISO UTC |
 
-`origin` not `source`: legacy `source` is the acquisition funnel.
+- `intake_status` (where the patient is in intake and review) is not
+  `account_status` (commercial, from legacy).
+- `origin` not `source`: legacy `source` is the acquisition funnel.
+- One row per email. A decision's note lives in `audit_event.reason`.
 
-### 2.1.2 `intake`
-
-| Column | Type | Constraint |
-|---|---|---|
-| `id` | text | uuid, PK |
-| `status` | text | not null, `CHECK` on the 8 states (2.2) |
-| `origin` | text | `CHECK IN (intake, legacy)` |
-| `questionnaire_version` | text | not null |
-| `ruleset_version` | text | null until evaluated; null for legacy |
-| `full_name`, `email`, `date_of_birth` | text | as `patient` |
-| `height_cm`, `weight_kg` | real | stored rounded to 1 dp |
-| `height_entered`, `weight_entered` | text | simple-json `{value, unit}` as typed |
-| `bmi` | real | 1 dp; null for legacy |
-| `glp1_current` | integer | boolean; null for legacy |
-| `glp1_medications` | text | simple-json `string[]` |
-| `other_medications` | text | null; legacy `meds_current` lands here |
-| `weight_conditions` | text | simple-json `string[]` |
-| `thyroid_cancer_history` | integer | boolean; null for legacy |
-| `pancreatitis_history` | integer | boolean; null for legacy |
-| `other_conditions` | text | null; legacy `conditions` lands here |
-| `alcohol_units_week` | integer | null |
-| `evaluation` | text | simple-json `[{ruleId, matched, outcome, explanation}]` |
-| `patient_id` | text | FK `patient.id`, null until approved |
-| `legacy_intake_id` | text | null |
-| `created_at`, `submitted_at`, `decided_at` | text | ISO UTC |
-
-No note column: a decision's note is `audit_event.reason`.
-
-### 2.1.3 `consent_event`
+### 2.1.2 `consent_event`
 
 | Column | Type | Constraint |
 |---|---|---|
 | `id` | text | uuid, PK |
-| `patient_id` | text | FK, null |
-| `intake_id` | text | FK, null; `CHECK` at least one of the two |
+| `patient_id` | text | FK `patient.id`, not null |
 | `type` | text | `CHECK IN ('data_processing')` |
 | `action` | text | `CHECK IN ('granted','revoked')` |
 | `version` | text | not null |
 | `at` | text | ISO UTC, not null |
-| `origin` | text | `CHECK IN (legacy, intake)` |
+| `origin` | text | `CHECK IN (intake, legacy)` |
 | `legacy_id` | text | null |
 
-Append-only, like the legacy consents it mirrors. Intake consent carries
-`intake_id`; approval sets `patient_id`.
+Append-only history, not a patient table: a patient has many consent events.
 
 ---
 
@@ -125,27 +110,27 @@ Append-only, like the legacy consents it mirrors. Intake consent carries
 
 | From | To | Actor | Trigger |
 |---|---|---|---|
-| — | `draft` | patient | consent given (2.3) |
+| — | `draft` | patient | step 1 saved (2.3) |
 | `draft` | `submitted` | patient | submit |
 | `submitted` | `auto_cleared` · `auto_flagged` · `auto_rejected` | `system` | evaluation, same transaction as submit |
 | `auto_cleared` · `auto_flagged` · `auto_rejected` | `in_review` | reviewer | start review |
 | `in_review` | `approved` · `rejected` | reviewer | decide, note required |
-| — | `approved` · `rejected` · `in_review` | `legacy-import` | legacy acceptance (2.6) |
 
 Every other pair is illegal. `approved` and `rejected` are terminal. `in_review` =
-awaiting a human decision. `auto_rejected` can still be reviewed — a mistyped
-date of birth rejects wrongly.
+awaiting a human decision. `auto_rejected` can be reviewed.
+
+Legacy rows: see 2.c.
 
 ### Enforcement — impossible, not avoided
 
 1. `INTAKE_TRANSITIONS` constant: the only definition of legal pairs.
-2. `IntakeStateMachine.transition()` is the only write to `status`:
-   `UPDATE … WHERE id = :id AND status = :from`, with its audit event, in one
-   transaction. 0 rows → 409.
+2. `IntakeStateMachine.transition()` is the only write to `intake_status`:
+   `UPDATE … WHERE id = :id AND intake_status = :from`, with its audit event, in
+   one transaction. 0 rows → 409.
 3. SQLite triggers, `CREATE TRIGGER IF NOT EXISTS` on boot:
-   - `BEFORE UPDATE OF status` raises unless `(OLD.status, NEW.status)` is legal.
-   - `BEFORE INSERT` raises unless `status = 'draft'`, or `origin = 'legacy'` and
-     status is in the legacy set.
+   - `BEFORE UPDATE OF intake_status` raises unless `(OLD, NEW)` is legal.
+   - `BEFORE INSERT` raises unless `intake_status = 'draft'`, or the row is legacy
+     and its status is in the set 2.c settles.
 4. Tests attempt every illegal pair through the service and through raw SQL; both fail.
 
 ---
@@ -154,8 +139,8 @@ date of birth rejects wrongly.
 
 Multi-step, one questionnaire step per screen, moving through 2.2.
 
-- Consent is step 1: nothing health-related is stored before consent to process it.
-- Consent given → `POST /intakes` creates the `draft` and a `consent_event granted`.
+- Step 1 saved → `POST /intakes` creates the `patient` row, `draft`.
+- Email already in `patient` → 409 at step 1.
 - Each Next → `PATCH` saves that step; the server validates that step's fields.
 - Draft id in the URL and localStorage; resumable; read-only once submitted.
 - No BMI and no likely outcome shown before submit — a live verdict invites
@@ -166,13 +151,7 @@ Multi-step, one questionnaire step per screen, moving through 2.2.
 
 Label distinct from legacy `v1`/`v2` so a stored label is never mistaken for one.
 
-**Step 1 — Consent**
-
-| Field | Question | Input | Required |
-|---|---|---|---|
-| `consent_data_processing` | I agree to Wellis processing my health data to assess my eligibility. (text `dp-2026.1`) | checkbox | must be checked |
-
-**Step 2 — About you**
+**Step 1 — About you**
 
 | Field | Question | Input | Required |
 |---|---|---|---|
@@ -180,14 +159,14 @@ Label distinct from legacy `v1`/`v2` so a stored label is never mistaken for one
 | `email` | Email address | email | yes |
 | `date_of_birth` | Date of birth | date | yes |
 
-**Step 3 — Body**
+**Step 2 — Body**
 
 | Field | Question | Input | Required |
 |---|---|---|---|
-| `height` | Height | number + unit `cm` · `ft + in` | yes |
-| `weight` | Weight | number + unit `kg` · `lb` | yes |
+| `height_cm` | Height (cm) | number | yes |
+| `weight_kg` | Weight (kg) | number | yes |
 
-**Step 4 — Medication**
+**Step 3 — Medication**
 
 | Field | Question | Input | Required |
 |---|---|---|---|
@@ -195,7 +174,7 @@ Label distinct from legacy `v1`/`v2` so a stored label is never mistaken for one
 | `glp1_medications` | Which? | multi-select: semaglutide (Ozempic, Wegovy, Rybelsus) · tirzepatide (Mounjaro, Zepbound) · liraglutide (Saxenda, Victoza) · dulaglutide (Trulicity) · exenatide (Byetta, Bydureon) · other + text | when yes |
 | `other_medications` | Any other medication you currently use? | long text | no |
 
-**Step 5 — Health**
+**Step 4 — Health**
 
 | Field | Question | Input | Required |
 |---|---|---|---|
@@ -204,6 +183,14 @@ Label distinct from legacy `v1`/`v2` so a stored label is never mistaken for one
 | `pancreatitis_history` | Have you ever had pancreatitis? | yes / no | yes |
 | `other_conditions` | Any other conditions we should know about? | long text | no |
 | `alcohol_units_week` | How many units of alcohol do you drink in a typical week? | whole number | no |
+
+**Step 5 — Consent**
+
+| Field | Question | Input | Required |
+|---|---|---|---|
+| `consent_data_processing` | I agree to Wellis processing my health data to assess my eligibility. (text `dp-2026.1`) | checkbox | must be checked |
+
+Saving writes a `consent_event granted`.
 
 **Step 6 — Check and submit**: every answer by step, edit link per step, Submit.
 
@@ -230,14 +217,10 @@ deterministic rule must never read an unanswered question as "no".
 | Button | On | Does |
 |---|---|---|
 | Start review | `auto_*` | → `in_review`, actor recorded |
-| Approve | `in_review` | → `approved`; patient create-or-link by email; `consent_event.patient_id` set |
-| Reject | `in_review` | → `rejected`; no patient |
+| Approve | `in_review` | → `approved` |
+| Reject | `in_review` | → `rejected` |
 
 - Approve and Reject disabled until the note is non-empty after trimming.
-- Approve is one transaction; a patient-creation failure rolls back and is shown
-  as in 2.6.
-- Existing `patient` with the same email → linked, not duplicated. Else created,
-  `origin intake`, `account_status prospect`.
 - Reviewer is a name entered once, kept in localStorage, sent as `actor`.
 
 ---
@@ -250,7 +233,7 @@ deterministic rule must never read an unanswered question as "no".
   until the step is valid.
 - Backend is authoritative: re-validates on every `PATCH` (that step) and on
   submit (all steps). 422 on failure.
-- Same rules gate legacy acceptance (2.6) and patient creation on approval (2.4).
+- Same rules gate legacy acceptance (2.6).
 - Written twice — no shared package (tech-stack 4.10). A contract spec posts each
   invalid fixture and asserts 422 naming that field.
 
@@ -259,8 +242,8 @@ deterministic rule must never read an unanswered question as "no".
 | `full_name` | trim; 2–120 chars; ≥1 letter; no digit; no `@` |
 | `email` | trim, lowercase; ≤254; exactly one `@`; domain contains `.`; no whitespace |
 | `date_of_birth` | real calendar date; not after today; not before 1900-01-01 |
-| `height` | 100–250 cm after conversion; `ft` 3–8, `in` 0–11 |
-| `weight` | 30–400 kg after conversion |
+| `height_cm` | 100–250 |
+| `weight_kg` | 30–400 |
 | `glp1_medications` | ≥1 when `glp1_current` yes; empty when no |
 | `weight_conditions` | ≥1; "none of these" combines with nothing |
 | yes / no fields | answered |
@@ -271,19 +254,19 @@ deterministic rule must never read an unanswered question as "no".
 | `phone` (legacy) | E.164, `+` then 8–15 digits |
 | `account_status` (legacy) | `active` · `paused` · `churned` · `prospect` |
 | `signup_date` (legacy) | real date; not after today |
+| `weight` (legacy) | `weight_unit` is `kg`; 30–400 |
 
-Conversions: `lb × 0.45359237`; `(ft × 12 + in) × 2.54`; rounded half-up to 1 dp.
-BMI is computed from the stored rounded values, so they reproduce it.
+BMI: `weight_kg / (height_cm / 100)²`, rounded half-up to 1 dp.
 
 ---
 
-## 2.6 Accepting an import row into the final table
+## 2.6 Accepting an import row into the main table
 
 `POST /rows/:table/:legacyId/accept`
 
 ### Preconditions — 409 with the reason
 
-- Row state is Import clean: no pending finding, not rejected, not accepted.
+- Row state is Import clean: no pending finding, not rejected, not imported.
 - The legacy id names exactly one data row (1.0.3).
 - Not the duplicate side of a `duplicate` link (1.1.13).
 
@@ -291,20 +274,19 @@ BMI is computed from the stored rounded values, so they reproduce it.
 
 | Source | Target | Requires |
 |---|---|---|
-| patient | `patient`, `origin legacy`, `account_status` ← legacy `status` | every column passes 2.5; `weight_unit` is `kg` |
-| intake | `intake`, `origin legacy`, status ← outcome: `approved`→`approved`, `rejected`→`rejected`, `pending`→`in_review` | its patient already accepted; outcome is one of the three |
-| consent | `consent_event`, `origin legacy` | its patient already accepted; action is `granted` or `revoked`; `at` is ISO |
+| patient | `patient`, `origin legacy`, `account_status` ← legacy `status` | every column passes 2.5 |
+| consent | `consent_event`, `origin legacy` | its patient already imported; action `granted` or `revoked`; `at` ISO |
+| intake | — | not accepted: many per patient, and `patient` holds one row per person. Stays in `legacy_intake` as history. |
 
-Legacy free text is never parsed into answers: `glp1_current`, `thyroid_cancer_history`,
-`pancreatitis_history` stay null (I26, I29). `reviewer_note` → the acceptance audit
-event's `reason`.
+Legacy free text is never parsed into answers: `glp1_current`,
+`thyroid_cancer_history`, `pancreatitis_history` stay null (I26, I29).
 
 ### Transaction
 
-Validate every column → insert target → insert `row_acceptance` → `audit_event`
-(`legacy_row`, `accept`). Any failure → rollback, nothing written.
+Validate every column → insert target → `audit_event` (`legacy_row`, `accept`).
+Any failure → rollback, nothing written.
 
-### Errors — the user's requirement
+### Errors
 
 - Invalid data → 422 `{ message, errors: [{ field, value, reason }] }`.
 - Every field error collected in one pass, not the first only.
@@ -314,29 +296,23 @@ Validate every column → insert target → insert `row_acceptance` → `audit_e
   (drawn with `ValueDiff`, so invisible characters show) and the reason; the row
   stays Import clean.
 
-### `row_acceptance`
+### Imported state
 
-| Column | Type | Constraint |
-|---|---|---|
-| `source_table` | text | PK |
-| `legacy_id` | text | PK |
-| `target_table` | text | `CHECK IN (patient, intake, consent_event)` |
-| `target_id` | text | not null |
-| `accepted_at` | text | ISO UTC |
-
-Rows screen gains a fourth state, **Imported**. Precedence: imported > rejected >
-pending > clean. Final: no actions, skipped by Apply rules.
+- Derived, not stored: a legacy patient row is imported when `patient.legacy_id`
+  names it; a legacy consent row when a `consent_event.legacy_id` does.
+- Rows screen gains a fourth state, **Imported**. Precedence: imported > rejected >
+  pending > clean. Final: no actions, skipped by Apply rules.
 
 ---
 
 ## 2.7 Eligibility engine
 
 Separate from the Part A rules engine: a Part A rule proposes a change and waits
-for a human; a ruleset classifies a submission on the spot. Resolves 2.a.
+for a human; a ruleset classifies a submission on the spot.
 
 - Rulesets are code, registered by version; every version stays registered.
 - `ACTIVE_RULESET = 'elig-1'`. Changing a threshold is a new version.
-- Evaluated once, at submit; the intake stores `ruleset_version` and every rule's result.
+- Evaluated once, at submit; the row stores `ruleset_version` and every rule's result.
 - Never re-evaluated.
 
 ### `elig-1`
@@ -353,19 +329,18 @@ for a human; a ruleset classifies a submission on the spot. Resolves 2.a.
 - Outcome: any reject → `auto_rejected`; else any flag → `auto_flagged`; else `auto_cleared`.
 - All five always run; every result stored, so a reviewer sees every reason.
 - Age: whole years from `date_of_birth` to the `submitted_at` date, UTC.
-- BMI: `weight_kg / (height_cm / 100)²`, rounded half-up to 1 dp, **compared
-  rounded** — otherwise 26.96 shows "27.0" and rejects as below 27.
+- BMI **compared rounded** — otherwise 26.96 shows "27.0" and rejects as below 27.
 
 ---
 
 ## 2.8 Audit log
 
-Every state change and every human decision. Resolves 2.b.
+Every state change and every human decision.
 
 | Column | Type | Constraint |
 |---|---|---|
 | `id` | text | uuid, PK |
-| `entity` | text | `CHECK IN (intake, patient, consent_event, legacy_row)` |
+| `entity` | text | `CHECK IN (patient, consent_event, legacy_row)` |
 | `entity_id` | text | not null |
 | `action` | text | `CHECK IN (create, transition, decision, accept)` |
 | `from_state` | text | null |
@@ -385,7 +360,7 @@ Every state change and every human decision. Resolves 2.b.
 
 | Method | Path | Does | Errors |
 |---|---|---|---|
-| POST | `/intakes` | consent → `draft` | 422 |
+| POST | `/intakes` | step 1 → `patient` row, `draft` | 409 email taken · 422 |
 | PATCH | `/intakes/:id` | save one step | 409 not draft · 422 |
 | POST | `/intakes/:id/submit` | validate all, `submitted` → `auto_*` | 409 · 422 |
 | GET | `/intakes/:id` | patient view, neutral status | 404 |
@@ -399,15 +374,24 @@ Every state change and every human decision. Resolves 2.b.
 
 ---
 
+## Open questions
+
+- **2.c** Auto accept and auto reject for legacy data. What decides it, and what
+  `intake_status` does an imported legacy patient carry? Constraint: three of the
+  five eligibility rules read yes/no answers the legacy export only has as free
+  text, while legacy intakes already carry the old system's
+  approved / rejected / pending decision.
+
+---
+
 ## Limits
 
 - No authentication: a draft is reached by uuid; `actor` is a typed name.
-- A ruleset change does not re-evaluate past intakes.
-- Legacy weights in lbs cannot be accepted until a pounds→kg rule exists
-  (`rule-catalogue.md`, its unsatisfiable constraint).
+- A ruleset change does not re-evaluate past rows.
+- One row per email: an abandoned draft holds its email; clearing stale drafts
+  is deferred.
 - The duplicate side of a link is refused, never merged (deferred D5).
-- A returning patient with a new email becomes a new patient — the ops team's
-  retry case stays a duplicates problem.
+- Legacy intakes are not migrated into `patient`; they remain history.
 - Work queue across Part A and B, conflict view, patient detail: Part C.
 
 ---
@@ -416,13 +400,14 @@ Every state change and every human decision. Resolves 2.b.
 
 | Id | Task | Nodes |
 |---|---|---|
-| B1 | Entities `patient`, `intake`, `consent_event`, `row_acceptance`, `audit_event`; boot triggers | 2.1, 2.2, 2.6, 2.8 |
+| B1 | Entities `patient`, `consent_event`, `audit_event`; boot triggers | 2.1, 2.2, 2.8 |
 | B2 | Backend validators and invalid fixtures | 2.5 |
 | B3 | Intake state machine and audit writer | 2.2, 2.8 |
 | B4 | Eligibility engine `elig-1` | 2.7 |
 | B5 | Intake API: create, patch, submit | 2.3, 2.9 |
 | B6 | Acceptance service, endpoint, rows screen Imported state | 2.6 |
-| B7 | Review API: queue, detail, start, decide with patient create-or-link | 2.4 |
+| B7 | Review API: queue, detail, start, decide | 2.4 |
 | B8 | Intake form UI with `@mantine/form` | 2.3, 2.5 |
 | B9 | Review UI | 2.4 |
 | B10 | Accept button and error display on the rows screen | 2.6 |
+| B11 | Auto accept and auto reject for legacy | 2.c |
