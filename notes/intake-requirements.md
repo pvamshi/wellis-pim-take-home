@@ -238,8 +238,8 @@ One queue for both origins.
   until the step is valid.
 - Backend is authoritative: re-validates on every `PATCH` (that step), on submit
   (all steps) and on legacy import. 422 on failure.
-- Legacy import applies the identity and body rules; medication and health
-  answers may be null.
+- Legacy import applies the identity rules, and the body rules to any value
+  present; height, weight, medication and health answers may be null.
 - Written twice — no shared package (tech-stack 4.10). A contract spec posts each
   invalid fixture and asserts 422 naming that field.
 
@@ -351,7 +351,7 @@ for a human; a ruleset classifies a submission on the spot.
 | Rule | Condition | Outcome | Explanation |
 |---|---|---|---|
 | E1 | age < 18 | reject | `rejected: age 17 at submission, under 18` |
-| E2 | BMI < 27.0 | reject | `rejected: BMI 25.3, below 27` |
+| E2 | BMI < 27.0, or BMI not recorded | reject | `rejected: BMI 25.3, below 27` · `rejected: BMI not recorded (legacy), height or weight missing` |
 | E3 | 27.0 ≤ BMI ≤ 30.0 and `weight_conditions` = none | flag | `flagged: BMI 27.4 with no weight-related condition` |
 | E4 | `glp1_current` yes | flag | `flagged: currently using a GLP-1 medication (semaglutide)` |
 | E5 | thyroid cancer or pancreatitis history | flag | `flagged: self-reported history of pancreatitis` |
@@ -360,6 +360,9 @@ for a human; a ruleset classifies a submission on the spot.
 - **A missing answer never clears a rule.** A null answer a rule needs matches it
   as a flag: `flagged: GLP-1 use not recorded (legacy)`. A legacy import is
   therefore flagged or rejected, never cleared.
+- The exception is BMI: a legacy patient without height or weight is rejected by
+  E2, and E3 reads the missing BMI as not matched. `auto_rejected` can still be
+  reviewed (2.2).
 - Outcome: any reject → `auto_rejected`; else any flag → `auto_flagged`; else `auto_cleared`.
 - All five always run; every result stored, so a reviewer sees every reason.
 - Age: whole years from `date_of_birth` to the submission date, UTC.
