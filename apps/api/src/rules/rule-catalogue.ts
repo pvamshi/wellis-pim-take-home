@@ -126,6 +126,13 @@ import { d03V2 } from './catalogue/d03-v2';
 import { d04V2 } from './catalogue/d04-v2';
 import { d05V2 } from './catalogue/d05-v2';
 import { d06V2 } from './catalogue/d06-v2';
+import { m01 } from './catalogue/m01';
+import { m02 } from './catalogue/m02';
+import { m03 } from './catalogue/m03';
+import { m04 } from './catalogue/m04';
+import { m05 } from './catalogue/m05';
+import { m06 } from './catalogue/m06';
+import { m07 } from './catalogue/m07';
 import type { CatalogueRule } from './rule-contract';
 
 /**
@@ -273,4 +280,11 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   d04V2,
   d05V2,
   d06V2,
+  m01,
+  m02,
+  m03,
+  m04,
+  m05,
+  m06,
+  m07,
 ];
