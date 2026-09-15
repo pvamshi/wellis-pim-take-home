@@ -525,6 +525,23 @@ narrowed version of the old rule and create a new rule alongside it for the case
 that was missed. Whether the old rule becomes active again is the workflow's
 decision.
 
+### 1.5.3 Seeing what a changed rule would do
+
+```gherkin
+Scenario: a rule gets a new version
+  Given P47 has versions 1 and 2 in code
+  When the effects of P47 are asked for
+  Then both versions run against the current data, and nothing is written
+  And the answer says what version 2 newly finds, no longer finds, and proposes differently
+  And how many findings Apply rules would record, and how many Import clean rows would become pending
+  And which of them an earlier decline or an import already settles
+  And which older-version findings stay pending
+```
+
+`GET /rules/:ruleId/effects?from=&to=` answers it; the `rule-effects` workflow
+calls it after a rule changes and explains the result before anyone presses
+Apply rules.
+
 ---
 
 ## 1.6 The rows screen

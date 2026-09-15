@@ -83,6 +83,18 @@ export class RuleRegistry {
     return run;
   }
 
+  /** Every version registered for a rule, lowest first; empty when the rule has no code. */
+  versionsOf(ruleId: string): number[] {
+    const versions: number[] = [];
+
+    for (const key of this.rules.keys()) {
+      const at = key.lastIndexOf('@');
+      if (key.slice(0, at) === ruleId) versions.push(Number(key.slice(at + 1)));
+    }
+
+    return versions.sort((left, right) => left - right);
+  }
+
   /**
    * Resolves the code, calls it once, and hands back what it returned.
    *

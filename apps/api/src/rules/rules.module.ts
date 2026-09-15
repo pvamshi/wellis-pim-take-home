@@ -15,6 +15,7 @@ import { ruleCatalogue } from './rule-catalogue';
 import { RuleDetailService } from './rule-detail.service';
 import { RuleFindingsService } from './rule-findings.service';
 import { RuleListService } from './rule-list.service';
+import { RuleEffectsService } from './rule-effects.service';
 import { RuleRegistry } from './rule-registry';
 import { RuleRevisionsService } from './rule-revisions.service';
 import { RuleRowDeclinesService } from './rule-row-declines.service';
@@ -182,6 +183,7 @@ import { Rule } from './rule.entity';
     DuplicateListService,
     DuplicateDetailService,
     DuplicateDecisionsService,
+    RuleEffectsService,
     { provide: RuleRegistry, useFactory: (): RuleRegistry => new RuleRegistry(ruleCatalogue) },
   ],
   exports: [
@@ -201,6 +203,7 @@ import { Rule } from './rule.entity';
     DuplicateListService,
     DuplicateDetailService,
     DuplicateDecisionsService,
+    RuleEffectsService,
   ],
 })
 export class RulesModule {}
