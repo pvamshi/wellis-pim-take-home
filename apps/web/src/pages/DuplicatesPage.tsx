@@ -13,11 +13,12 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { ApiError, duplicatesUrl, getDuplicates } from '../api/client';
 import type { DuplicateListEntry, DuplicateStatus, LegacySourceTable } from '../api/types';
 import { AppNav } from '../components/AppNav';
 import { DuplicateDetailPanel } from '../components/DuplicateDetailPanel';
+import { useListTop } from '../useListTop';
 
 type RequestState =
   | { kind: 'loading' }
@@ -29,9 +30,6 @@ type StatusFilter = 'all' | DuplicateStatus;
 
 /** How tall a collapsed link is assumed to be before it has been measured. */
 const ESTIMATED_ROW_HEIGHT = 60;
-
-/** How much of the list is drawn, in pixels — `RowsPage`'s own constant. */
-const LIST_HEIGHT = 640;
 
 /** How many links one fetch asks for — `RowsPage`'s own constant. */
 const FETCH_SIZE = 100;
@@ -112,7 +110,8 @@ export function DuplicatesPage() {
         if (controller.signal.aborted) return;
         setState({
           kind: 'failed',
-          error: cause instanceof ApiError ? cause : new ApiError(String(cause), null, duplicatesUrl),
+          error:
+            cause instanceof ApiError ? cause : new ApiError(String(cause), null, duplicatesUrl),
         });
       });
 
@@ -161,18 +160,21 @@ export function DuplicatesPage() {
   }
 
   const links = state.kind === 'loaded' ? state.links : EMPTY_LINKS;
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
+  // Scrolls with the page, like `RowsPage`.
+  const list = useListTop<HTMLDivElement>();
+  const virtualizer = useWindowVirtualizer({
     count: links.length,
-    getScrollElement: () => scrollRef.current,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: 8,
+    scrollMargin: list.top,
   });
 
   const visible = virtualizer.getVirtualItems();
-  const above = visible.length > 0 ? visible[0].start : 0;
+  const above = visible.length > 0 ? visible[0].start - list.top : 0;
   const below =
-    visible.length > 0 ? virtualizer.getTotalSize() - visible[visible.length - 1].end : 0;
+    visible.length > 0
+      ? virtualizer.getTotalSize() - (visible[visible.length - 1].end - list.top)
+      : 0;
 
   const total = state.kind === 'loaded' ? state.total : 0;
   const lastVisible = visible.length > 0 ? visible[visible.length - 1].index : 0;
@@ -239,7 +241,7 @@ export function DuplicatesPage() {
         )}
 
         {state.kind === 'loaded' && state.links.length > 0 && (
-          <div ref={scrollRef} style={{ height: LIST_HEIGHT, overflowY: 'auto' }}>
+          <div ref={list.ref}>
             <Accordion variant="separated" keepMounted={false}>
               {above > 0 && <div style={{ height: above }} />}
               {/* Keyed by the link's own generated id (1.7.1) — it has no natural key. */}

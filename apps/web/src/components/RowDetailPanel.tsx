@@ -1,18 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  Badge,
-  Button,
-  Checkbox,
-  Code,
-  Group,
-  Loader,
-  Select,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-} from '@mantine/core';
+import { Alert, Badge, Button, Group, Loader, Stack, Table, Text, TextInput } from '@mantine/core';
 import {
   ApiError,
   approveAllOnRow,
@@ -36,6 +23,7 @@ import type {
   RuleRowAddress,
 } from '../api/types';
 import { DeclineDialog, type DeclineDecision } from './DeclineDialog';
+import { ReasonDialog } from './ReasonDialog';
 import { RuleRowsTable } from './RuleRowsTable';
 
 type RequestState =
@@ -44,14 +32,8 @@ type RequestState =
   | { kind: 'failed'; error: ApiError };
 
 /**
- * The cross that is waiting on the dialog, or null while none is.
- *
- * Unlike `RuleDetailPanel`'s own `DeclineTarget`, there is no `'rule'` kind
- * here (1.6's own opening paragraph: "decline this whole rule" is the rules
- * screen's unit, not this one's) and the rule id travels with the target,
- * because a row's findings can span several rules and versions at once —
- * `RuleDetailPanel` never needs to carry one because its whole panel is
- * already one rule.
+ * The finding cross waiting on `DeclineDialog`. The rule id travels with it
+ * because a row's findings can span several rules and versions at once.
  */
 interface DeclineTarget {
   readonly ruleId: string;
@@ -60,44 +42,32 @@ interface DeclineTarget {
   readonly address: RuleRowAddress;
 }
 
+/** The field being edited inline, and what has been typed so far. */
+interface Editing {
+  readonly column: string;
+  readonly value: string;
+}
+
 export interface RowDetailPanelProps {
   readonly table: LegacySourceTable;
   readonly legacyId: string;
   /**
-   * Whether the list showed this row as rejected at the moment it was
-   * expanded. `GET /rows/:table/:legacyId` itself carries no rejection field
-   * (1.6.2 keeps rejection stored and read separately from what that endpoint
-   * joins), so Reject/Un-reject visibility starts here and is then kept in
-   * this panel's own state, updated from each press's own `rejected` answer.
+   * Whether the list showed this row as rejected when it was expanded. The
+   * detail endpoint carries no rejection field (1.6.2), so this seeds the
+   * panel's own state, which each press's report then keeps current.
    */
   readonly initialRejected: boolean;
-  /**
-   * Whether the list showed this row as Imported (2.6) at the moment it was
-   * expanded — final, "no actions": every press below is hidden rather than
-   * merely disabled, the same way a settled duplicate link offers none.
-   */
+  /** Whether the list showed this row as Imported (2.6): final, so read-only. */
   readonly imported: boolean;
-  /**
-   * Called after a press has landed, with one line saying what it did.
-   *
-   * The page above shows that line and re-reads its list — the same reason
-   * `RuleDetailPanel.onChanged` exists: a press here can change this row's
-   * state (1.6.2), which only the list computes.
-   */
+  /** Called after a press has landed, with one line saying what it did; the page re-reads its list. */
   readonly onChanged: (outcome: string) => void;
 }
 
-/** How many rows, in words that read the same for one as for many. */
-function rowCount(n: number): string {
-  return n === 1 ? '1 row' : `${n} rows`;
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
 
-/**
- * One finding, reshaped into the rules screen's own row shape so it can be
- * handed straight into the unmodified `RuleRowsTable` — the same before/after
- * (`ValueDiff`) and the same box-not-tick ambiguous handling, with no second
- * copy of either written for this screen.
- */
+/** One finding in the rules screen's row shape, so `RuleRowsTable` draws it unchanged. */
 function toRuleDetailRow(
   table: LegacySourceTable,
   legacyId: string,
@@ -113,16 +83,13 @@ function toRuleDetailRow(
 }
 
 /**
- * One expanded row (1.6.3): its own column values, its findings grouped by
- * rule, Approve all / Decline all (1.6.4, 1.6.5), Reject / Un-reject (1.6.6)
- * and a hand-edit form (1.6.7).
+ * One expanded row (1.6.3–1.6.7), laid out as a record page: a status line
+ * with the row's actions, its values as a field/value table edited inline, and
+ * its findings grouped by rule.
  *
- * `RuleDetailPanel`'s counterpart for this screen, and it follows the same
- * five rules that one's own comment states: it reads on mount (and is mounted
- * by being expanded), the screen's truth always comes from re-reading, a
- * finding-level press names the group's own `(ruleId, version)` rather than
- * anything list-wide, a failed press changes nothing on the screen, and
- * neither finding's cross posts on its own — both open `DeclineDialog`.
+ * Row-wide presses that settle many things at once (Decline all, Reject) ask
+ * for confirmation and an optional reason in a dialog; nothing is a
+ * permanently open form. A rejected or imported row is read-only.
  */
 export function RowDetailPanel({
   table,
@@ -134,28 +101,21 @@ export function RowDetailPanel({
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [declining, setDeclining] = useState<DeclineTarget | null>(null);
+  const [dialog, setDialog] = useState<'declineAll' | 'reject' | null>(null);
   const [rejected, setRejected] = useState(initialRejected);
-  const [rejectReason, setRejectReason] = useState('');
-  const [declineAllReason, setDeclineAllReason] = useState('');
-  const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [clearColumn, setClearColumn] = useState(false);
+  const [editing, setEditing] = useState<Editing | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    // Every rejection is handled here, so nothing escapes as an unhandled
-    // promise rejection: a backend that is not running renders the Alert
-    // below.
     getRowDetail(table, legacyId, controller.signal)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setState({ kind: 'loaded', detail });
       })
       .catch((cause: unknown) => {
-        // An abort means this panel was collapsed; there is no one to tell.
         if (controller.signal.aborted) return;
         setState({
           kind: 'failed',
@@ -169,75 +129,37 @@ export function RowDetailPanel({
     return () => controller.abort();
   }, [table, legacyId, attempt]);
 
-  // Defaults the edit form to the row's first column, once, when the detail
-  // first loads. A later reload (after any press) leaves it alone: the set of
-  // columns never changes for a fixed table, so there is nothing to
-  // re-default, and doing so would overwrite whatever the operator was typing
-  // mid-edit.
-  useEffect(() => {
-    if (state.kind !== 'loaded' || selectedColumn !== null) return;
+  function fail(cause: unknown) {
+    setActionError(cause instanceof ApiError ? cause.message : String(cause));
+  }
 
-    const first = state.detail.dataRows[0];
-    if (first === undefined) return;
-
-    const firstColumn = Object.keys(first)[0];
-    if (firstColumn === undefined) return;
-
-    setSelectedColumn(firstColumn);
-    setEditValue(first[firstColumn] ?? '');
-  }, [state, selectedColumn]);
-
-  /**
-   * Runs one press that changes the row's findings or values, then re-reads
-   * the detail.
-   *
-   * The re-read is the point: it is what moves a finding between pending and
-   * settled and what refreshes `dataRows`, so a press that fails leaves the
-   * screen exactly as it was.
-   */
-  function press(run: () => Promise<string>) {
+  /** Runs a press that changes findings or values, then re-reads the detail. A failed press changes nothing on screen. */
+  function press(run: () => Promise<string>, after?: () => void) {
     setBusy(true);
     setActionError(null);
 
     run()
       .then((outcome) => {
+        after?.();
         setAttempt((n) => n + 1);
         onChanged(outcome);
       })
-      .catch((cause: unknown) => {
-        setActionError(
-          cause instanceof ApiError
-            ? cause
-            : new ApiError(String(cause), null, rowUrl(table, legacyId)),
-        );
-      })
+      .catch(fail)
       .finally(() => setBusy(false));
   }
 
-  /**
-   * Reject and un-reject touch no finding and no legacy value — `RowDetail`
-   * carries no rejection field for either to change — so this updates local
-   * state from the press's own report instead of re-reading the detail.
-   */
-  function pressRejection(
-    run: () => Promise<RowRejectionReport>,
-    outcome: (report: RowRejectionReport) => string,
-  ) {
+  /** Reject and un-reject change neither findings nor values, so the report updates local state instead of a re-read. */
+  function pressRejection(run: () => Promise<RowRejectionReport>, outcome: string) {
     setBusy(true);
     setActionError(null);
 
     run()
       .then((report) => {
         setRejected(report.rejected);
-        onChanged(outcome(report));
+        setEditing(null);
+        onChanged(outcome);
       })
-      .catch((cause: unknown) => {
-        setActionError(
-          cause instanceof ApiError
-            ? cause
-            : new ApiError(String(cause), null, rowUrl(table, legacyId)),
-        );
-      })
+      .catch(fail)
       .finally(() => setBusy(false));
   }
 
@@ -251,8 +173,8 @@ export function RowDetailPanel({
     press(async () => {
       const report = await approveRow(group.ruleId, address);
       return report.approved === 0
-        ? `Nothing to approve on ${group.ruleName}: ${table} ${legacyId}, ${address.column} was already settled.`
-        : `Approved ${table} ${legacyId}, ${address.column} of ${group.ruleName}, updating ${rowCount(report.updated)} of legacy data.`;
+        ? `Nothing to approve: ${legacyId}, ${address.column} was already settled.`
+        : `Approved ${address.column} on ${legacyId} (${group.ruleName}).`;
     });
   }
 
@@ -263,12 +185,11 @@ export function RowDetailPanel({
     press(async () => {
       const report = await approveRow(group.ruleId, address, value);
       return report.approved === 0
-        ? `Nothing to set on ${group.ruleName}: ${table} ${legacyId}, ${address.column} was already settled.`
-        : `Set ${table} ${legacyId}, ${address.column} to "${value}", updating ${rowCount(report.updated)} of legacy data.`;
+        ? `Nothing to set: ${legacyId}, ${address.column} was already settled.`
+        : `Set ${address.column} on ${legacyId} to "${value}".`;
     });
   }
 
-  /** The cross on an ambiguous finding, pressed inline rather than through the dialog (1.2.13). */
   function onFindingDeclineWithReason(
     group: RowDetailRuleGroup,
     row: RuleDetailRow,
@@ -279,15 +200,11 @@ export function RowDetailPanel({
     press(async () => {
       const report = await declineRow(group.ruleId, address, reason);
       return report.declined === 0
-        ? `Nothing to decline on ${group.ruleName}: ${table} ${legacyId}, ${address.column} was already settled.`
-        : `Declined ${table} ${legacyId}, ${address.column} of ${group.ruleName}. It will never be proposed again.`;
+        ? `Nothing to decline: ${legacyId}, ${address.column} was already settled.`
+        : `Declined ${address.column} on ${legacyId} (${group.ruleName}).`;
     });
   }
 
-  // Neither cross posts anything. Both open the dialog, which is where the
-  // reason is typed and where the two opposite outcomes of the "modify the
-  // rule" tick are chosen between (1.2.7, 1.2.8) — this row's own group
-  // carries the ruleId/version that choice acts on.
   function onFindingDecline(group: RowDetailRuleGroup, row: RuleDetailRow) {
     setDeclining({
       ruleId: group.ruleId,
@@ -310,7 +227,7 @@ export function RowDetailPanel({
         const report = await reviseFromRow(ruleId, address, reason);
         return report.version === null
           ? `${ruleName} has no active version, so nothing was sent for revision.`
-          : `Sent ${ruleName} v${report.version} for revision, from ${table} ${legacyId}, ${address.column}. That row stays pending, so the next version proposes on it.`;
+          : `Sent ${ruleName} v${report.version} for revision. ${legacyId}, ${address.column} stays pending.`;
       });
       return;
     }
@@ -318,95 +235,76 @@ export function RowDetailPanel({
     press(async () => {
       const report = await declineRow(ruleId, address);
       return report.declined === 0
-        ? `Nothing to decline on ${ruleName}: ${table} ${legacyId}, ${address.column} was already settled.`
-        : `Declined ${table} ${legacyId}, ${address.column} of ${ruleName}. It will never be proposed again.`;
+        ? `Nothing to decline: ${legacyId}, ${address.column} was already settled.`
+        : `Declined ${address.column} on ${legacyId} (${ruleName}).`;
     });
   }
 
-  /**
-   * Approve all (1.6.4): every pending finding that proposes a value,
-   * approved and written in one transaction; ambiguous ones are left pending
-   * and reported so the press never looks like it finished a row it did not.
-   */
+  /** Approve all (1.6.4): every pending finding that proposes a value; ambiguous ones stay pending. */
   function onApproveAll() {
     press(async () => {
       const report = await approveAllOnRow(table, legacyId);
-      const base = `Approved ${rowCount(report.approved)} on ${table} ${legacyId}, updating ${rowCount(report.updated)} of legacy data.`;
+      const base = `Approved ${count(report.approved, 'finding')} on ${legacyId}.`;
       return report.skipped === 0
         ? base
-        : `${base} ${rowCount(report.skipped)} left pending — ambiguous, with nothing to tick.`;
+        : `${base} ${count(report.skipped, 'finding')} still need a value.`;
     });
   }
 
   /** Decline all (1.6.5): every pending finding, ambiguous ones included, declined forever. */
-  function onDeclineAll() {
-    const reason = declineAllReason.trim();
+  function onDeclineAll(reason: string | undefined) {
+    setDialog(null);
 
     press(async () => {
-      const report = await declineAllOnRow(table, legacyId, reason === '' ? undefined : reason);
+      const report = await declineAllOnRow(table, legacyId, reason);
       return report.declined === 0
-        ? `Nothing to decline on ${table} ${legacyId}: nothing was pending.`
-        : `Declined ${rowCount(report.declined)} on ${table} ${legacyId}. Every one of them is declined forever.`;
+        ? `Nothing was pending on ${legacyId}.`
+        : `Declined ${count(report.declined, 'finding')} on ${legacyId}.`;
     });
   }
 
-  function onReject() {
-    const reason = rejectReason.trim();
-
-    pressRejection(
-      () => rejectRow(table, legacyId, reason === '' ? undefined : reason),
-      () => `Rejected ${table} ${legacyId}. It is not offered for promotion.`,
-    );
+  function onReject(reason: string | undefined) {
+    setDialog(null);
+    pressRejection(() => rejectRow(table, legacyId, reason), `Rejected ${legacyId}.`);
   }
 
   function onUnreject() {
-    pressRejection(
-      () => unrejectRow(table, legacyId),
-      () => `Un-rejected ${table} ${legacyId}.`,
+    pressRejection(() => unrejectRow(table, legacyId), `Un-rejected ${legacyId}.`);
+  }
+
+  /** A field corrected by hand (1.6.7), logged as an approved finding under "Hand edit". Null clears the field. */
+  function saveEdit(value: string | null) {
+    if (editing === null) return;
+    const { column } = editing;
+
+    press(
+      async () => {
+        const report = await editRow(table, legacyId, column, value);
+        return report.nextValue === null
+          ? `Cleared ${column} on ${legacyId}.`
+          : `Set ${column} on ${legacyId} to "${report.nextValue}".`;
+      },
+      () => setEditing(null),
     );
-  }
-
-  function onColumnChange(column: string, dataRows: RowDetailResponse['dataRows']) {
-    setSelectedColumn(column);
-    setClearColumn(false);
-    setEditValue(dataRows[0]?.[column] ?? '');
-  }
-
-  /** A field corrected by hand (1.6.7): written and logged as an approved finding. */
-  function onSubmitEdit() {
-    if (selectedColumn === null) return;
-    const column = selectedColumn;
-
-    press(async () => {
-      const report = await editRow(table, legacyId, column, clearColumn ? null : editValue);
-      return report.nextValue === null
-        ? `Cleared ${table} ${legacyId}, ${report.column}.`
-        : `Set ${table} ${legacyId}, ${report.column} to "${report.nextValue}".`;
-    });
   }
 
   if (state.kind === 'loading') {
     return (
       <Group gap="sm">
         <Loader size="sm" />
-        <Text size="sm">
-          Reading <Code>{rowUrl(table, legacyId)}</Code>
-        </Text>
+        <Text size="sm">Loading {legacyId}</Text>
       </Group>
     );
   }
 
   if (state.kind === 'failed') {
     return (
-      <Alert color="red" title="This row could not be read">
+      <Alert color="red" title="This row could not be loaded">
         <Stack gap="xs">
           <Text size="sm">{state.error.message}</Text>
-          {state.error.status !== null && <Text size="sm">HTTP status: {state.error.status}</Text>}
-          <Text size="sm">
-            URL tried: <Code>{state.error.url}</Code>
-          </Text>
           <Group>
             <Button
+              size="xs"
               color="red"
               variant="light"
               onClick={() => {
@@ -424,248 +322,315 @@ export function RowDetailPanel({
 
   const { detail } = state;
   const columns = detail.dataRows[0] === undefined ? [] : Object.keys(detail.dataRows[0]);
-  const anyPending = detail.findings.some((group) => group.pending.length > 0);
-
-  /**
-   * Whether Approve all has anything to approve.
-   *
-   * Not the same question as `anyPending`. Approve all takes only findings that
-   * propose a value (1.6.4), so on a row whose pending findings are all from
-   * ambiguous rules it would approve nothing and report the whole row skipped —
-   * a press that can only tell you it did nothing. Decline all has no such
-   * problem: the cross needs no proposal.
-   */
+  const editable = !imported && !rejected;
+  const pendingCount = detail.findings.reduce((sum, group) => sum + group.pending.length, 0);
+  // Approve all takes only findings that propose a value (1.6.4), so a row whose
+  // pending findings are all ambiguous has nothing for it to approve.
   const anyApprovable = detail.findings.some(
     (group) => !group.ambiguous && group.pending.length > 0,
   );
 
+  const status = imported
+    ? 'Imported as a new patient. Nothing here can change any more.'
+    : rejected
+      ? table === 'patient'
+        ? 'Rejected. This patient will not be imported.'
+        : 'Rejected.'
+      : pendingCount > 0
+        ? `${count(pendingCount, 'finding')} waiting for a decision.`
+        : 'Nothing waiting for a decision.';
+
   return (
     <Stack gap="lg">
-      {actionError !== null && (
-        <Alert color="red" title="That press did not land">
-          <Stack gap="xs">
-            <Text size="sm">{actionError.message}</Text>
-            {actionError.status !== null && (
-              <Text size="sm">HTTP status: {actionError.status}</Text>
+      <Group justify="space-between" wrap="wrap" gap="sm">
+        <Group gap="xs">
+          {rejected && !imported && (
+            <Badge color="red" variant="light">
+              Rejected
+            </Badge>
+          )}
+          <Text size="sm" c="dimmed">
+            {status}
+          </Text>
+        </Group>
+
+        {!imported && (
+          <Group gap="xs">
+            {busy && <Loader size="xs" />}
+            {editable && pendingCount > 0 && (
+              <>
+                <Button
+                  size="xs"
+                  color="green"
+                  disabled={busy || !anyApprovable}
+                  onClick={onApproveAll}
+                >
+                  Approve all
+                </Button>
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="light"
+                  disabled={busy}
+                  onClick={() => setDialog('declineAll')}
+                >
+                  Decline all
+                </Button>
+              </>
             )}
-            <Text size="sm">
-              URL tried: <Code>{actionError.url}</Code>
-            </Text>
-            <Text size="sm">Nothing was decided. What is below is unchanged.</Text>
-          </Stack>
+            {editable && (
+              <Button
+                size="xs"
+                color="red"
+                variant="subtle"
+                disabled={busy}
+                onClick={() => setDialog('reject')}
+              >
+                Reject row
+              </Button>
+            )}
+            {rejected && (
+              <Button size="xs" variant="light" disabled={busy} onClick={onUnreject}>
+                Un-reject
+              </Button>
+            )}
+          </Group>
+        )}
+      </Group>
+
+      {actionError !== null && (
+        <Alert
+          color="red"
+          title="That did not go through"
+          withCloseButton
+          onClose={() => setActionError(null)}
+        >
+          <Text size="sm">{actionError} Nothing was changed.</Text>
         </Alert>
       )}
 
       <Stack gap="xs">
-        <Text fw={600}>Row values</Text>
-        {/*
-          A legacy id names a row without identifying one (1.0.3) — a small
-          read-only table, one line per physical row, is the simplest form
-          that shows "there is more than one" without inventing a merge UI
-          nothing in 1.6 asks for.
-        */}
-        <Text size="sm" c="dimmed">
-          {detail.dataRows.length === 1
-            ? 'One physical row carries this legacy id.'
-            : `${detail.dataRows.length} physical rows share this legacy id (1.0.3).`}
+        <Text fw={600} size="sm">
+          Values
         </Text>
+        {detail.dataRows.length > 1 && (
+          <Text size="xs" c="dimmed">
+            {detail.dataRows.length} rows share this legacy id (1.0.3); an edit applies to all of
+            them.
+          </Text>
+        )}
         <Table.ScrollContainer minWidth={480}>
-          <Table striped withTableBorder>
+          <Table withTableBorder verticalSpacing={6}>
             <Table.Thead>
               <Table.Tr>
-                {columns.map((column) => (
-                  <Table.Th key={column}>{column}</Table.Th>
-                ))}
+                <Table.Th w={180}>Field</Table.Th>
+                {detail.dataRows.length === 1 ? (
+                  <Table.Th>Value</Table.Th>
+                ) : (
+                  detail.dataRows.map((_, index) => (
+                    <Table.Th key={index}>Row {index + 1}</Table.Th>
+                  ))
+                )}
+                {editable && <Table.Th w={80} />}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {detail.dataRows.map((row, index) => (
-                <Table.Tr key={index}>
-                  {columns.map((column) => (
-                    <Table.Td key={column}>
-                      <Text size="sm">{row[column] ?? '(none)'}</Text>
+              {columns.map((column) =>
+                editing?.column === column ? (
+                  <Table.Tr key={column}>
+                    <Table.Td>
+                      <Text size="sm" fw={500}>
+                        {column}
+                      </Text>
                     </Table.Td>
-                  ))}
-                </Table.Tr>
-              ))}
+                    <Table.Td colSpan={detail.dataRows.length + 1}>
+                      <Group gap="xs" wrap="nowrap">
+                        <TextInput
+                          size="xs"
+                          style={{ flex: 1 }}
+                          aria-label={`New value for ${column}`}
+                          value={editing.value}
+                          disabled={busy}
+                          onChange={(event) =>
+                            setEditing({ column, value: event.currentTarget.value })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') saveEdit(editing.value);
+                            if (event.key === 'Escape') setEditing(null);
+                          }}
+                          data-autofocus
+                          autoFocus
+                        />
+                        <Button size="xs" disabled={busy} onClick={() => saveEdit(editing.value)}>
+                          Save
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="gray"
+                          disabled={busy}
+                          onClick={() => saveEdit(null)}
+                        >
+                          Set to none
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="default"
+                          disabled={busy}
+                          onClick={() => setEditing(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ) : (
+                  <Table.Tr key={column}>
+                    <Table.Td>
+                      <Text size="sm" fw={500}>
+                        {column}
+                      </Text>
+                    </Table.Td>
+                    {detail.dataRows.map((row, index) => (
+                      <Table.Td key={index}>
+                        <Text
+                          size="sm"
+                          c={row[column] === null || row[column] === '' ? 'dimmed' : undefined}
+                          style={{ wordBreak: 'break-word' }}
+                        >
+                          {row[column] === null
+                            ? '(none)'
+                            : row[column] === ''
+                              ? '(empty)'
+                              : row[column]}
+                        </Text>
+                      </Table.Td>
+                    ))}
+                    {editable && (
+                      <Table.Td>
+                        <Group justify="flex-end">
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            disabled={busy || editing !== null}
+                            onClick={() =>
+                              setEditing({ column, value: detail.dataRows[0]?.[column] ?? '' })
+                            }
+                          >
+                            Edit
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    )}
+                  </Table.Tr>
+                ),
+              )}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
       </Stack>
 
-      <Stack gap="md">
-        <Text fw={600}>Findings</Text>
-        {detail.findings.length === 0 && (
-          <Text size="sm" c="dimmed">
-            No rule has found anything on this row.
+      {detail.findings.length > 0 && (
+        <Stack gap="md">
+          <Text fw={600} size="sm">
+            Findings
           </Text>
-        )}
-        {detail.findings.map((group) => {
-          const pendingRows = group.pending.map((finding) =>
-            toRuleDetailRow(table, legacyId, finding),
-          );
-          const settledRows = group.settled.map((finding) =>
-            toRuleDetailRow(table, legacyId, finding),
-          );
+          {detail.findings.map((group) => {
+            const pendingRows = group.pending.map((finding) =>
+              toRuleDetailRow(table, legacyId, finding),
+            );
+            const settledRows = group.settled.map((finding) =>
+              toRuleDetailRow(table, legacyId, finding),
+            );
 
-          return (
-            <Stack key={`${group.ruleId}:${group.version}`} gap="xs">
-              <Group gap="xs">
-                <Text fw={500}>{group.ruleName}</Text>
-                <Text size="sm" c="dimmed">
-                  v{group.version}
-                </Text>
-                {group.ambiguous && (
-                  <Badge variant="light" color="yellow">
-                    Needs a value
-                  </Badge>
-                )}
-              </Group>
-
-              {pendingRows.length > 0 && (
-                <RuleRowsTable
-                  rows={pendingRows}
-                  ambiguous={group.ambiguous}
-                  description={group.description}
-                  actions={{
-                    onApprove: (row) => onFindingApprove(group, row),
-                    onDecline: (row) => onFindingDecline(group, row),
-                    onApproveWithValue: (row, value) =>
-                      onFindingApproveWithValue(group, row, value),
-                    onDeclineWithReason: (row, reason) =>
-                      onFindingDeclineWithReason(group, row, reason),
-                    busy,
-                  }}
-                />
-              )}
-
-              {settledRows.length > 0 && (
-                <Stack gap={4}>
-                  {/*
-                    "Settled", not "Approved": the backend deliberately merges
-                    approved and declined into this one bucket, dropping which
-                    is which, so a label claiming one would claim a
-                    distinction this data no longer carries.
-                  */}
-                  <Text size="xs" c="dimmed" fw={600}>
-                    Settled
+            return (
+              <Stack key={`${group.ruleId}:${group.version}`} gap="xs">
+                <Group gap="xs">
+                  <Text size="sm" fw={500}>
+                    {group.ruleName}
                   </Text>
+                  <Text size="xs" c="dimmed">
+                    v{group.version}
+                  </Text>
+                  {group.ambiguous && (
+                    <Badge variant="light" color="yellow">
+                      Needs a value
+                    </Badge>
+                  )}
+                </Group>
+
+                {pendingRows.length > 0 && (
                   <RuleRowsTable
-                    rows={settledRows}
+                    rows={pendingRows}
                     ambiguous={group.ambiguous}
                     description={group.description}
+                    actions={
+                      editable
+                        ? {
+                            onApprove: (row) => onFindingApprove(group, row),
+                            onDecline: (row) => onFindingDecline(group, row),
+                            onApproveWithValue: (row, value) =>
+                              onFindingApproveWithValue(group, row, value),
+                            onDeclineWithReason: (row, reason) =>
+                              onFindingDeclineWithReason(group, row, reason),
+                            busy,
+                          }
+                        : undefined
+                    }
                   />
-                </Stack>
-              )}
-            </Stack>
-          );
-        })}
-      </Stack>
+                )}
 
-      {imported && (
-        <Text size="sm" c="dimmed" fs="italic">
-          {/* 2.6: "Final: no actions" — this row is already a new patient entry; nothing below is offered. */}
-          This row has been imported as a new patient. No further action is offered here.
-        </Text>
-      )}
-
-      {!imported && (
-        <Group align="flex-end">
-          <Button color="green" onClick={onApproveAll} disabled={busy || !anyApprovable}>
-            Approve all
-          </Button>
-          <TextInput
-            size="sm"
-            label="Decline all"
-            placeholder="Why (optional)"
-            value={declineAllReason}
-            disabled={busy || !anyPending}
-            aria-label={`Reason for declining all of ${table} ${legacyId}`}
-            onChange={(event) => setDeclineAllReason(event.currentTarget.value)}
-          />
-          <Button color="red" variant="light" onClick={onDeclineAll} disabled={busy || !anyPending}>
-            Decline all
-          </Button>
-          {busy && <Loader size="sm" />}
-        </Group>
-      )}
-
-      {!imported && (
-        <Group align="flex-end">
-          {!rejected && (
-            <>
-              <TextInput
-                size="sm"
-                label="Reject"
-                placeholder="Why (optional)"
-                value={rejectReason}
-                disabled={busy}
-                aria-label={`Reason for rejecting ${table} ${legacyId}`}
-                onChange={(event) => setRejectReason(event.currentTarget.value)}
-              />
-              <Button color="red" onClick={onReject} disabled={busy}>
-                Reject
-              </Button>
-            </>
-          )}
-          {rejected && (
-            <Button variant="light" onClick={onUnreject} disabled={busy}>
-              Un-reject
-            </Button>
-          )}
-        </Group>
-      )}
-
-      {!imported && (
-        <Stack gap="xs">
-          <Text fw={600}>Edit a field by hand</Text>
-          <Text size="sm" c="dimmed">
-            {/*
-              1.6.7: a hand edit is written as a finding under a reserved rule
-              id, approved in the same transaction that writes it, so it shows
-              up above under "Hand edit" the next time this row is read.
-            */}
-            Written under the reserved &ldquo;Hand edit&rdquo; rule id, so the modification log
-            records it like any other change.
-          </Text>
-          <Group align="flex-end">
-            <Select
-              label="Column"
-              data={columns}
-              value={selectedColumn}
-              disabled={busy}
-              onChange={(value) => value !== null && onColumnChange(value, detail.dataRows)}
-            />
-            <TextInput
-              label="Value"
-              value={editValue}
-              disabled={busy || clearColumn}
-              onChange={(event) => setEditValue(event.currentTarget.value)}
-            />
-            <Checkbox
-              label="Clear this column"
-              checked={clearColumn}
-              disabled={busy}
-              onChange={(event) => setClearColumn(event.currentTarget.checked)}
-            />
-            <Button onClick={onSubmitEdit} disabled={busy || selectedColumn === null}>
-              Save
-            </Button>
-          </Group>
+                {settledRows.length > 0 && (
+                  <Stack gap={4}>
+                    {/* "Settled", not "Approved": the backend merges approved and declined into one bucket. */}
+                    <Text size="xs" c="dimmed" fw={600}>
+                      Settled
+                    </Text>
+                    <RuleRowsTable
+                      rows={settledRows}
+                      ambiguous={group.ambiguous}
+                      description={group.description}
+                    />
+                  </Stack>
+                )}
+              </Stack>
+            );
+          })}
         </Stack>
       )}
 
-      {/*
-        Mounted only while a cross is waiting on an answer, and keyed by which
-        one it was — the same reason `RuleDetailPanel` keys its own dialog:
-        every open should start from an empty reason and an unticked box.
-      */}
       {declining !== null && (
         <DeclineDialog
-          key={`${declining.address.table}:${declining.address.legacyId}:${declining.address.column}:${declining.ruleId}`}
+          key={`${declining.address.column}:${declining.ruleId}:${declining.address.version}`}
           target={{ kind: 'row', ruleName: declining.ruleName, row: declining.row }}
           onCancel={() => setDeclining(null)}
           onConfirm={runDecline}
+        />
+      )}
+
+      {dialog === 'declineAll' && (
+        <ReasonDialog
+          title={`Decline all findings on ${legacyId}`}
+          message={`Every pending finding on this row (${pendingCount}) is declined, and no rule will propose it again.`}
+          confirmLabel="Decline all"
+          color="red"
+          onCancel={() => setDialog(null)}
+          onConfirm={onDeclineAll}
+        />
+      )}
+
+      {dialog === 'reject' && (
+        <ReasonDialog
+          title={`Reject ${legacyId}`}
+          message={
+            table === 'patient'
+              ? 'This patient will not be imported. You can un-reject it later.'
+              : 'This row is set aside. You can un-reject it later.'
+          }
+          confirmLabel="Reject row"
+          color="red"
+          onCancel={() => setDialog(null)}
+          onConfirm={onReject}
         />
       )}
     </Stack>

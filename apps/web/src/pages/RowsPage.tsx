@@ -15,7 +15,7 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { ApiError, getRows, importPatientRow, importPatientRows, rowsUrl } from '../api/client';
 import type {
   BulkImportRowResult,
@@ -28,13 +28,14 @@ import { AppNav } from '../components/AppNav';
 import { ImportFailureList } from '../components/ImportFailureList';
 import { RowDetailPanel } from '../components/RowDetailPanel';
 import { getStoredStaffName } from '../staffName';
+import { useListTop } from '../useListTop';
 
 type RequestState =
   | { kind: 'loading' }
   | { kind: 'loaded'; rows: RowListEntry[]; total: number }
   | { kind: 'failed'; error: ApiError };
 
-type TableFilter = 'all' | LegacySourceTable;
+type TableFilter = LegacySourceTable;
 type StateFilter = 'all' | RowState;
 
 /**
@@ -46,16 +47,6 @@ type StateFilter = 'all' | RowState;
  * measured like any other.
  */
 const ESTIMATED_ROW_HEIGHT = 60;
-
-/**
- * How much of the list is drawn, in pixels.
- *
- * The list scrolls inside this rather than down the document, because the
- * virtualiser has to own a scroll container to know what is on screen. Tall
- * enough that the filters and the heading stay put while a long list moves
- * under them.
- */
-const LIST_HEIGHT = 640;
 
 /**
  * How many rows one fetch asks for.
@@ -87,12 +78,47 @@ const CHECKBOX_INSET = 17;
 /** A stable empty array, so the virtualiser is not rebuilt on every render. */
 const EMPTY_ROWS: RowListEntry[] = [];
 
-/** The on-screen name for each state (1.6.1, and B7's `imported`, 2.6). */
-const STATE_LABELS: Record<RowState, string> = {
-  imported: 'Imported',
+/**
+ * The on-screen name for each state. Only patient rows are imported (2.6):
+ * intake rows stay history and consent rows come with their patient, so their
+ * states say nothing about importing.
+ */
+const PATIENT_STATE_LABELS: Record<RowState, string> = {
   pending: 'Import pending',
   clean: 'Import clean',
   rejected: 'Import rejected',
+  imported: 'Imported',
+};
+
+const RECORD_STATE_LABELS: Record<RowState, string> = {
+  pending: 'Needs review',
+  clean: 'Clean',
+  rejected: 'Rejected',
+  imported: 'Imported',
+};
+
+function stateLabel(table: LegacySourceTable, state: RowState): string {
+  return (table === 'patient' ? PATIENT_STATE_LABELS : RECORD_STATE_LABELS)[state];
+}
+
+/** The state filter for one table: Imported exists only for patients. */
+function stateFilterData(table: LegacySourceTable) {
+  const states: RowState[] =
+    table === 'patient'
+      ? ['pending', 'clean', 'rejected', 'imported']
+      : ['pending', 'clean', 'rejected'];
+
+  return [
+    { label: 'All', value: 'all' },
+    ...states.map((state) => ({ label: stateLabel(table, state), value: state })),
+  ];
+}
+
+const TABLE_DESCRIPTIONS: Record<LegacySourceTable, string> = {
+  patient: 'Legacy patients. Import clean patients can be imported into the main patient table.',
+  intake: 'Legacy intakes. They stay here as history and are never imported.',
+  consent:
+    'Legacy consent records. They come in with their patient on import; a pending finding here blocks that import.',
 };
 
 const STATE_COLORS: Record<RowState, string> = {
@@ -102,19 +128,11 @@ const STATE_COLORS: Record<RowState, string> = {
   rejected: 'red',
 };
 
+/** One table at a time: states mean different things per table, so they are never mixed in one list. */
 const TABLE_FILTER_DATA = [
-  { label: 'All', value: 'all' },
   { label: 'Patient', value: 'patient' },
   { label: 'Intake', value: 'intake' },
   { label: 'Consent', value: 'consent' },
-];
-
-const STATE_FILTER_DATA = [
-  { label: 'All', value: 'all' },
-  { label: STATE_LABELS.pending, value: 'pending' },
-  { label: STATE_LABELS.clean, value: 'clean' },
-  { label: STATE_LABELS.rejected, value: 'rejected' },
-  { label: STATE_LABELS.imported, value: 'imported' },
 ];
 
 /**
@@ -129,7 +147,7 @@ const STATE_FILTER_DATA = [
  */
 export function RowsPage() {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
-  const [tableFilter, setTableFilter] = useState<TableFilter>('all');
+  const [tableFilter, setTableFilter] = useState<TableFilter>('patient');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [attempt, setAttempt] = useState(0);
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
@@ -259,7 +277,7 @@ export function RowsPage() {
   }
 
   const narrowing = {
-    table: tableFilter === 'all' ? undefined : tableFilter,
+    table: tableFilter,
     state: stateFilter === 'all' ? undefined : stateFilter,
   };
 
@@ -362,6 +380,7 @@ export function RowsPage() {
     setState({ kind: 'loading' });
     clearSelection();
     setTableFilter(value as TableFilter);
+    if (value !== 'patient' && stateFilter === 'imported') setStateFilter('all');
   }
 
   function onStateFilterChange(value: string) {
@@ -424,21 +443,25 @@ export function RowsPage() {
       .finally(() => setSelectingAll(false));
   }
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
+  // The list scrolls with the page, so it uses the whole window height.
+  const list = useListTop<HTMLDivElement>();
+  const virtualizer = useWindowVirtualizer({
     count: rows.length,
-    getScrollElement: () => scrollRef.current,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: 8,
+    scrollMargin: list.top,
   });
 
   const visible = virtualizer.getVirtualItems();
 
   // Two spacers rather than absolute positioning, so the accordion's own
-  // `separated` spacing and its focus order are the ones Mantine draws.
-  const above = visible.length > 0 ? visible[0].start : 0;
+  // `separated` spacing and its focus order are the ones Mantine draws. Item
+  // offsets include the list's own top; the spacers do not.
+  const above = visible.length > 0 ? visible[0].start - list.top : 0;
   const below =
-    visible.length > 0 ? virtualizer.getTotalSize() - visible[visible.length - 1].end : 0;
+    visible.length > 0
+      ? virtualizer.getTotalSize() - (visible[visible.length - 1].end - list.top)
+      : 0;
 
   // Fetch the next window when the reader gets within a screenful of the end of
   // what is loaded. Driven by what the virtualiser is drawing rather than by a
@@ -463,7 +486,7 @@ export function RowsPage() {
         <Stack gap={4}>
           <Title order={1}>Rows</Title>
           <Text size="sm" c="dimmed">
-            Every legacy row, with its state (1.6.1).
+            {TABLE_DESCRIPTIONS[tableFilter]}
           </Text>
         </Stack>
 
@@ -477,7 +500,7 @@ export function RowsPage() {
           <SegmentedControl
             value={stateFilter}
             onChange={onStateFilterChange}
-            data={STATE_FILTER_DATA}
+            data={stateFilterData(tableFilter)}
             aria-label="Filter by state"
           />
         </Group>
@@ -508,9 +531,24 @@ export function RowsPage() {
           </Text>
         )}
 
-        {/* The list header: Select all sits in the same cell as the row checkboxes below. */}
+        {/*
+          The list header: Select all sits in the same cell as the row
+          checkboxes below, and stays on screen while the page scrolls.
+        */}
         {importable && state.kind === 'loaded' && state.rows.length > 0 && (
-          <Group justify="space-between" wrap="nowrap" gap={0} pr="md">
+          <Group
+            justify="space-between"
+            wrap="nowrap"
+            gap={0}
+            pr="md"
+            py="xs"
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              background: 'var(--mantine-color-body)',
+            }}
+          >
             <Group gap="xs" wrap="nowrap" pl={CHECKBOX_INSET}>
               <Checkbox
                 label={`Select all (${cleanTotal})`}
@@ -532,7 +570,7 @@ export function RowsPage() {
         )}
 
         {state.kind === 'loaded' && state.rows.length > 0 && (
-          <div ref={scrollRef} style={{ height: LIST_HEIGHT, overflowY: 'auto' }}>
+          <div ref={list.ref}>
             <Accordion variant="separated" keepMounted={false}>
               {above > 0 && <div style={{ height: above }} />}
               {/* Keyed by table + legacy id, which cannot repeat within a table on this list. */}
@@ -570,12 +608,9 @@ export function RowsPage() {
                       )}
                       <Accordion.Control style={{ flex: 1, minWidth: 0 }}>
                         <Group justify="space-between" wrap="nowrap" pr="sm">
-                          <Group gap="xs" wrap="nowrap">
-                            <Text fw={600}>{row.table}</Text>
-                            <Code>{row.legacyId}</Code>
-                          </Group>
+                          <Code>{row.legacyId}</Code>
                           <Badge variant="light" color={STATE_COLORS[row.state]}>
-                            {STATE_LABELS[row.state]}
+                            {stateLabel(row.table, row.state)}
                           </Badge>
                         </Group>
                       </Accordion.Control>

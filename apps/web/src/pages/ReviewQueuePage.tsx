@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Alert,
@@ -15,11 +15,12 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { ApiError, getReviewQueue, reviewUrl } from '../api/client';
 import type { IntakeStatus, PatientOrigin, ReviewQueueEntry } from '../api/types';
 import { STATUS_COLORS, STATUS_LABELS } from '../intake/status';
 import { AppNav } from '../components/AppNav';
+import { useListTop } from '../useListTop';
 
 type RequestState =
   | { readonly kind: 'loading' }
@@ -45,7 +46,6 @@ const ORIGIN_FILTER_DATA = [
 ];
 
 const ROW_HEIGHT = 56;
-const LIST_HEIGHT = 640;
 
 function formatSubmitted(value: string | null): string {
   if (value === null) return '—';
@@ -92,12 +92,13 @@ export function ReviewQueuePage() {
   }, [statuses, origin, attempt]);
 
   const rows = state.kind === 'loaded' ? state.rows : [];
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
+  // Scrolls with the page, like `RowsPage`.
+  const list = useListTop<HTMLDivElement>();
+  const virtualizer = useWindowVirtualizer({
     count: rows.length,
-    getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
+    scrollMargin: list.top,
   });
 
   return (
@@ -173,7 +174,7 @@ export function ReviewQueuePage() {
               </Text>
             </Group>
 
-            <div ref={scrollRef} style={{ height: LIST_HEIGHT, overflowY: 'auto' }}>
+            <div ref={list.ref}>
               <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
                 {virtualizer.getVirtualItems().map((item) => {
                   const row = rows[item.index];
@@ -190,7 +191,7 @@ export function ReviewQueuePage() {
                         top: 0,
                         left: 0,
                         right: 0,
-                        transform: `translateY(${item.start}px)`,
+                        transform: `translateY(${item.start - list.top}px)`,
                         display: 'block',
                         color: 'inherit',
                         textDecoration: 'none',
@@ -209,7 +210,11 @@ export function ReviewQueuePage() {
                         <Text size="sm" style={{ flex: '0 0 50px' }}>
                           {row.bmi ?? '—'}
                         </Text>
-                        <Badge variant="light" color={STATUS_COLORS[row.status]} style={{ flex: '0 0 120px' }}>
+                        <Badge
+                          variant="light"
+                          color={STATUS_COLORS[row.status]}
+                          style={{ flex: '0 0 120px' }}
+                        >
                           {STATUS_LABELS[row.status]}
                         </Badge>
                         <Group gap={4} wrap="wrap" style={{ flex: 1 }}>
