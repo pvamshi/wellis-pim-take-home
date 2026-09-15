@@ -34,6 +34,13 @@ export interface RowListEntry {
   readonly table: LegacySourceTable;
   /** Theirs, and not unique (1.0.3) — this line names a row, not a person. */
   readonly legacyId: string;
+  /**
+   * What the screen titles the row by: the patient's full name on a patient
+   * row, null when it has none and on intake and consent rows. A legacy id
+   * repeated across rows with different names (1.0.3) carries every name, so
+   * the title never picks one of them silently.
+   */
+  readonly name: string | null;
   readonly state: RowState;
 }
 
@@ -93,6 +100,8 @@ interface RowSource {
   readonly data: EntityTarget<ObjectLiteral>;
   /** The property of the data entity holding the legacy id (1.0.3, non-unique). */
   readonly legacyIdProperty: string;
+  /** The property holding the name a row is titled by, on the one source that has one. */
+  readonly nameProperty?: string;
   /** The rule table findings against this source land in (1.1.14). */
   readonly rules: EntityTarget<LegacyRuleRow>;
 }
@@ -109,6 +118,7 @@ const rowSources: readonly RowSource[] = [
     table: 'patient',
     data: LegacyPatient,
     legacyIdProperty: 'legacyPatientId',
+    nameProperty: 'fullName',
     rules: LegacyPatientRule,
   },
   {
@@ -171,7 +181,7 @@ export class RowListService {
     const entries: RowListEntry[] = [];
 
     for (const source of sources) {
-      const [legacyIds, pendingIds, rejectedIds, importedIds] = await Promise.all([
+      const [legacyIds, pendingIds, rejectedIds, importedIds, names] = await Promise.all([
         this.distinctIds(source.data, source.legacyIdProperty),
         this.distinctPendingIds(source.rules),
         this.rejectedIds(source.table),
@@ -179,12 +189,16 @@ export class RowListService {
         // consent rows "come with their patient" rather than having an
         // imported state of their own.
         source.table === 'patient' ? this.importedLegacyIds() : Promise.resolve(new Set<string>()),
+        source.nameProperty === undefined
+          ? Promise.resolve(new Map<string, string>())
+          : this.namesByLegacyId(source.data, source.legacyIdProperty, source.nameProperty),
       ]);
 
       for (const legacyId of legacyIds) {
         entries.push({
           table: source.table,
           legacyId,
+          name: names.get(legacyId) ?? null,
           state: importedIds.has(legacyId)
             ? 'imported'
             : rejectedIds.has(legacyId)
@@ -231,6 +245,39 @@ export class RowListService {
       .getRawMany<{ legacyId: string }>();
 
     return rows.map((row) => row.legacyId);
+  }
+
+  /**
+   * Each legacy id's name, from every row carrying that id: trimmed, blanks
+   * dropped, distinct, sorted and joined with " / " — one id can be several
+   * rows (1.0.3), and they need not agree.
+   */
+  private async namesByLegacyId(
+    entity: EntityTarget<ObjectLiteral>,
+    legacyIdProperty: string,
+    nameProperty: string,
+  ): Promise<Map<string, string>> {
+    const rows = await this.dataSource
+      .getRepository(entity)
+      .createQueryBuilder('row')
+      .select(`row.${legacyIdProperty}`, 'legacyId')
+      .addSelect(`row.${nameProperty}`, 'name')
+      .getRawMany<{ legacyId: string; name: string | null }>();
+
+    const seen = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      const name = row.name?.trim();
+      if (!name) continue;
+
+      const names = seen.get(row.legacyId) ?? new Set<string>();
+      names.add(name);
+      seen.set(row.legacyId, names);
+    }
+
+    return new Map(
+      [...seen].map(([legacyId, names]) => [legacyId, [...names].sort().join(' / ')]),
+    );
   }
 
   /** Every distinct legacy id with at least one pending finding in this rule table. */

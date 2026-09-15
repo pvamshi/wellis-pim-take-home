@@ -596,7 +596,7 @@ export function RowsPage() {
                         <Box w={CHECKBOX_CELL} pl={CHECKBOX_INSET - 1}>
                           {importClean && (
                             <Checkbox
-                              aria-label={`Select ${row.legacyId} for import`}
+                              aria-label={`Select ${row.name ?? row.legacyId} for import`}
                               checked={selected.has(row.legacyId)}
                               onChange={(event) =>
                                 toggleSelected(row.legacyId, event.currentTarget.checked)
@@ -607,7 +607,14 @@ export function RowsPage() {
                       )}
                       <Accordion.Control style={{ flex: 1, minWidth: 0 }}>
                         <Group justify="space-between" wrap="nowrap" pr="sm">
-                          <Code>{row.legacyId}</Code>
+                          {/* A patient row is titled by its name; a row with none keeps its legacy id. */}
+                          {row.name === null ? (
+                            <Code>{row.legacyId}</Code>
+                          ) : (
+                            <Text truncate style={{ minWidth: 0 }}>
+                              {row.name}
+                            </Text>
+                          )}
                           <Badge variant="light" color={STATE_COLORS[row.state]}>
                             {stateLabel(row.table, row.state)}
                           </Badge>

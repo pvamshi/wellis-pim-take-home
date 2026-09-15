@@ -271,6 +271,8 @@ export interface RowListEntry {
   readonly table: LegacySourceTable;
   /** Theirs, and not unique (1.0.3) — this line names a row, not a person. */
   readonly legacyId: string;
+  /** The patient's full name on a patient row; null when it has none, and on intake and consent rows. */
+  readonly name: string | null;
   readonly state: RowState;
 }
 

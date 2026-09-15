@@ -574,6 +574,10 @@ Scenario: the screen lists the dataset
   And the list can be filtered to one state
 ```
 
+A patient row is titled by the patient's name, and by its legacy id when it has
+none; intake and consent rows keep their legacy id. A legacy id repeated with
+different names (1.0.3) shows every name.
+
 The three states are **Import pending**, **Import clean** and **Import
 rejected**.
 

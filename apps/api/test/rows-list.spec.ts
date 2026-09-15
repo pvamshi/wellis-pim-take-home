@@ -241,6 +241,29 @@ describe('the rows list', () => {
     ]);
   });
 
+  it('titles a patient row by its name, and no other row by one', async () => {
+    await patients.insert([
+      { legacyPatientId: 'P-NAMED', fullName: '  Anna de Vries ', rawData: '{"id":"P-NAMED"}' },
+      { legacyPatientId: 'P-TWICE', fullName: 'Jan Bakker', rawData: '{"id":"P-TWICE"}' },
+      { legacyPatientId: 'P-TWICE', fullName: 'J. Bakker', rawData: '{"id":"P-TWICE"}' },
+      { legacyPatientId: 'P-TWICE', fullName: 'Jan Bakker', rawData: '{"id":"P-TWICE"}' },
+      { legacyPatientId: 'P-BLANK', fullName: '   ', rawData: '{"id":"P-BLANK"}' },
+    ]);
+    await seedIntake('I-UNNAMED');
+
+    const names = async (table: string) =>
+      (await loadRows({ table })).body.rows.map((row) => [row.legacyId, row.name]);
+
+    // Trimmed; a blank name is no name; and an id repeated with different
+    // names (1.0.3) carries each once, rather than one picked silently.
+    expect(await names('patient')).toEqual([
+      ['P-BLANK', null],
+      ['P-NAMED', 'Anna de Vries'],
+      ['P-TWICE', 'J. Bakker / Jan Bakker'],
+    ]);
+    expect(await names('intake')).toEqual([['I-UNNAMED', null]]);
+  });
+
   it('answers one window at a time, with the total of the whole filter', async () => {
     const ids = Array.from(
       { length: 120 },
@@ -280,7 +303,7 @@ describe('the rows list', () => {
     const { body } = await loadRows({ table: 'patient' });
 
     expect(body).toEqual({
-      rows: [{ table: 'patient', legacyId: 'P-DEFAULT', state: 'clean' }],
+      rows: [{ table: 'patient', legacyId: 'P-DEFAULT', name: null, state: 'clean' }],
       total: 1,
     });
   });
