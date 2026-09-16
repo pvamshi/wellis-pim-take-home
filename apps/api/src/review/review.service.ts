@@ -37,9 +37,11 @@ export interface QueueFilter {
   readonly origin?: PatientOrigin;
 }
 
-/** One line of the queue (2.4): submitted, origin, age, BMI, status, matched flags. */
+/** One line of the queue (2.4): name, submitted, origin, age, BMI, status, matched flags. */
 export interface ReviewQueueEntry {
   readonly id: string;
+  /** Who the line is about. The uuid names the row to the machine; this names it to the reviewer. */
+  readonly name: string;
   readonly submittedAt: string | null;
   readonly origin: PatientOrigin;
   readonly age: number;
@@ -156,6 +158,7 @@ export class ReviewService {
 
     return patients.map((patient) => ({
       id: patient.id,
+      name: patient.fullName,
       submittedAt: patient.submittedAt,
       origin: patient.origin,
       age: ageAt(patient),

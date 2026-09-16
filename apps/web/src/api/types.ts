@@ -702,6 +702,8 @@ export interface ReviewAnswers {
 /** One line of the review queue (2.4) — a restatement of the backend's `ReviewQueueEntry`. */
 export interface ReviewQueueEntry {
   readonly id: string;
+  /** Who the line is about — the first column, so a row reads as a person and not a uuid. */
+  readonly name: string;
   readonly submittedAt: string | null;
   readonly origin: PatientOrigin;
   readonly age: number;

@@ -164,6 +164,9 @@ export function ReviewQueuePage() {
         {state.kind === 'loaded' && rows.length > 0 && (
           <>
             <Group gap="xl" px="sm" c="dimmed">
+              <Text size="xs" fw={600} style={{ flex: '0 0 200px' }}>
+                Patient
+              </Text>
               <Text size="xs" fw={600} style={{ flex: '0 0 160px' }}>
                 Submitted
               </Text>
@@ -208,6 +211,9 @@ export function ReviewQueuePage() {
                       }}
                     >
                       <Group gap="xl" wrap="nowrap">
+                        <Text size="sm" fw={500} truncate style={{ flex: '0 0 200px' }}>
+                          {row.name}
+                        </Text>
                         <Text size="sm" style={{ flex: '0 0 160px' }}>
                           {formatSubmitted(row.submittedAt)}
                         </Text>

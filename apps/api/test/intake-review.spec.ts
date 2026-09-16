@@ -518,7 +518,15 @@ describe('B3 intake and review API', () => {
 
       // A draft answered step 1 and no more: no submission date, no BMI, and
       // an age read as of today rather than a nonsense number off a null.
-      expect(draft).toMatchObject({ submittedAt: null, bmi: null, age: 30, matchedRuleIds: [] });
+      // The name is the first column (2.4): a line has to read as a person,
+      // not as a uuid nobody can recognise.
+      expect(draft).toMatchObject({
+        name: 'Ada Lovelace',
+        submittedAt: null,
+        bmi: null,
+        age: 30,
+        matchedRuleIds: [],
+      });
 
       expect(approved?.submittedAt).not.toBeNull();
       expect(approved?.age).toBe(30);
