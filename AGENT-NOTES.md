@@ -1,8 +1,8 @@
 # Agent notes
 
-Built with Claude Code. Session traces are the exported transcripts at the repository
-root (`01.txt`, `1a.txt`, `2.txt`, `3.txt`) and the raw session logs submitted with
-them.
+Built with Claude Code. Session traces are the exported transcripts in
+[`traces/`](traces/) — `1.txt` to `4.txt`, one per session, in the order they
+happened — and the raw session logs submitted with them.
 
 ## How I decomposed the work
 

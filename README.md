@@ -10,7 +10,8 @@ All patient data in this repository is synthetic.
 - **Deployed:** _URL to be added at deploy_
 - **Import report:** [IMPORT-REPORT.md](IMPORT-REPORT.md)
 - **How the agents were directed:** [AGENT-NOTES.md](AGENT-NOTES.md), the workflow
-  scripts in [`.claude/workflows/`](.claude/workflows/), and the session traces
+  scripts in [`.claude/workflows/`](.claude/workflows/), and the session traces in
+  [`traces/`](traces/)
 - **Specs the code was built from:** [`notes/`](notes/) — `final-requirements.md`
   (Part A), `intake-requirements.md` (Part B), `rule-catalogue.md`, `deferred.md`
 
