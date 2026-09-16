@@ -198,7 +198,7 @@ export function RulesPage() {
             <Title order={1}>Rules</Title>
             <Text size="sm" c="dimmed">
               Rules with rows waiting for a decision, the largest first, then the rules already
-              applied.
+              applied, then the ones waiting to be rewritten.
             </Text>
           </Stack>
           {/*
@@ -276,15 +276,17 @@ export function RulesPage() {
           </Alert>
         )}
 
-        {state.kind === 'loaded' && state.rules.every((rule) => rule.pending === 0) && (
-          <Stack gap="xs">
-            <Text fw={600}>Nothing is pending.</Text>
-            <Text size="sm" c="dimmed">
-              A rule appears here once a run has left rows awaiting a decision. Rules whose changes
-              have all been applied are listed under Applied.
-            </Text>
-          </Stack>
-        )}
+        {/* A parked rule's own pending rows are not work: nothing here can move them. */}
+        {state.kind === 'loaded' &&
+          !state.rules.some((rule) => !rule.queuedForRevision && rule.pending > 0) && (
+            <Stack gap="xs">
+              <Text fw={600}>Nothing is pending.</Text>
+              <Text size="sm" c="dimmed">
+                A rule appears here once a run has left rows awaiting a decision. Rules whose
+                changes have all been applied are listed under Applied.
+              </Text>
+            </Stack>
+          )}
 
         {state.kind === 'loaded' &&
           sections(state.rules).map(
