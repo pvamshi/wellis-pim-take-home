@@ -48,7 +48,7 @@ function runSummary(totals: ApplyRulesTotals): string {
   );
 }
 
-/** One of the screen's two lists, under its heading. */
+/** One of the screen's three lists, under its heading. */
 interface RuleSection {
   readonly key: string;
   /** Null for the first list, which the page title already names. */
@@ -85,10 +85,10 @@ function sections(rules: RuleListEntry[]): RuleSection[] {
 /**
  * The rules screen (1.2.1): every rule whose active version has rows waiting
  * for a decision, most first, then the rules whose changes are all applied,
- * each expandable.
+ * then the versions waiting to be rewritten (1.5.1). Each is expandable.
  *
  * The list is rendered in the order `GET /rules` hands it over — no sort, and
- * no line dropped; the page only splits it in two. That behaviour is the endpoint's (T5.1)
+ * no line dropped; the page only splits it in three. That behaviour is the endpoint's (T5.1)
  * and is tested there; repeating it here would create a second definition of
  * 1.2.1 that could quietly disagree with the first.
  *
