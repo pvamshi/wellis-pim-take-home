@@ -8,6 +8,8 @@ import { AuditEvent } from '../src/audit/audit-event.entity';
 import type { IntakeView } from '../src/intake/intake.service';
 import { LegacyConsent } from '../src/legacy/legacy-consent.entity';
 import { LegacyPatient } from '../src/legacy/legacy-patient.entity';
+import { INTAKE_STATUSES, type IntakeStatus } from '../src/patient/intake-status';
+import { Patient } from '../src/patient/patient.entity';
 import { QUEUE_STATUSES } from '../src/review/review.service';
 import type { ReviewDetail, ReviewQueueEntry } from '../src/review/review.service';
 import { createTemporaryDatabase, type TemporaryDatabase } from './temp-database';
@@ -195,6 +197,86 @@ describe('B3 intake and review API', () => {
     expect(response.status).toBe(200);
 
     return response.body.patientId as string;
+  }
+
+  /** Drives one intake as far as `in_review`. */
+  async function startedIntake(): Promise<string> {
+    const { id } = await submitIntake();
+
+    const response = await request(app.getHttpServer())
+      .post(`/review/intakes/${id}/start`)
+      .send({ actor: 'Dr. Okafor' });
+    expect(response.status).toBe(200);
+
+    return id;
+  }
+
+  /** Drives one intake all the way to a reviewer's decision. */
+  async function decidedIntake(decision: 'approved' | 'rejected'): Promise<string> {
+    const id = await startedIntake();
+
+    const response = await request(app.getHttpServer())
+      .post(`/review/intakes/${id}/decide`)
+      .send({ decision, note: 'decided in a test', actor: 'Dr. Okafor' });
+    expect(response.status).toBe(200);
+
+    return id;
+  }
+
+  /**
+   * One patient resting in `submitted` — inserted, not driven.
+   *
+   * Both doors into that status, intake submit and legacy import, evaluate
+   * and move the row on to `auto_*` in the same transaction, so no request
+   * can leave one resting there. 2.2 has the status all the same, a crash
+   * between those two writes would strand a row in it, and the queue is
+   * asked to show every status there is. `legacy` is the origin because the
+   * insert trigger admits no other one at `submitted`.
+   */
+  async function insertSubmittedPatient(): Promise<string> {
+    const now = new Date().toISOString();
+    const repository = dataSource.getRepository(Patient);
+    const patient = repository.create({
+      intakeStatus: 'submitted',
+      origin: 'legacy',
+      fullName: 'Awaiting Evaluation',
+      email: freshEmail(),
+      dateOfBirth: yearsAgo(41),
+      accountStatus: 'prospect',
+      createdAt: now,
+      submittedAt: now,
+      updatedAt: now,
+    });
+
+    await repository.insert(patient);
+
+    return patient.id;
+  }
+
+  /** One patient resting in each of the eight statuses (2.2), by status. The draft is made first, so it is also the oldest row. */
+  async function patientInEveryStatus(): Promise<Record<IntakeStatus, string>> {
+    const { id: draft } = await createDraft();
+    const { id: autoCleared } = await submitIntake();
+    const { id: autoFlagged } = await submitIntake({
+      glp1_current: true,
+      glp1_medications: ['semaglutide'],
+    });
+    const { id: autoRejected } = await submitIntake({ date_of_birth: yearsAgo(10) });
+    const inReview = await startedIntake();
+    const approved = await decidedIntake('approved');
+    const rejected = await decidedIntake('rejected');
+    const submitted = await insertSubmittedPatient();
+
+    return {
+      draft,
+      submitted,
+      auto_cleared: autoCleared,
+      auto_flagged: autoFlagged,
+      auto_rejected: autoRejected,
+      in_review: inReview,
+      approved,
+      rejected,
+    };
   }
 
   // --- POST /intakes -------------------------------------------------------
@@ -396,12 +478,70 @@ describe('B3 intake and review API', () => {
       expect((rejectedOnly.body as ReviewQueueEntry[]).map((e) => e.id)).toEqual([rejectedId]);
     });
 
-    it('400s an unrecognised status', async () => {
+    it('finds the patient in every one of the eight statuses', async () => {
+      const ids = await patientInEveryStatus();
+
+      for (const status of INTAKE_STATUSES) {
+        const response = await request(app.getHttpServer())
+          .get('/review/intakes')
+          .query({ status });
+
+        expect(response.status).toBe(200);
+        expect((response.body as ReviewQueueEntry[]).map((entry) => entry.id)).toEqual([
+          ids[status],
+        ]);
+      }
+    });
+
+    it('still defaults to those three alone, with all eight in the table', async () => {
+      const ids = await patientInEveryStatus();
+
+      const response = await request(app.getHttpServer()).get('/review/intakes');
+      expect(response.status).toBe(200);
+
+      expect((response.body as ReviewQueueEntry[]).map((entry) => entry.id).sort()).toEqual(
+        [ids.auto_flagged, ids.auto_cleared, ids.in_review].sort(),
+      );
+    });
+
+    it('builds a row for a draft and for a decided patient', async () => {
+      const ids = await patientInEveryStatus();
+
       const response = await request(app.getHttpServer())
         .get('/review/intakes')
-        .query({ status: 'nonsense' });
+        .query({ status: 'draft,approved' });
+      expect(response.status).toBe(200);
 
-      expect(response.status).toBe(400);
+      const rows = response.body as ReviewQueueEntry[];
+      const draft = rows.find((row) => row.id === ids.draft);
+      const approved = rows.find((row) => row.id === ids.approved);
+
+      // A draft answered step 1 and no more: no submission date, no BMI, and
+      // an age read as of today rather than a nonsense number off a null.
+      expect(draft).toMatchObject({ submittedAt: null, bmi: null, age: 30, matchedRuleIds: [] });
+
+      expect(approved?.submittedAt).not.toBeNull();
+      expect(approved?.age).toBe(30);
+      expect(approved?.bmi).toBeGreaterThan(0);
+    });
+
+    it('400s an unrecognised status, but not a decided one', async () => {
+      const ids = await patientInEveryStatus();
+
+      const nonsense = await request(app.getHttpServer())
+        .get('/review/intakes')
+        .query({ status: 'nonsense' });
+      expect(nonsense.status).toBe(400);
+
+      // `approved` and `rejected` were a 400 here too, once: deciding a
+      // patient took it off every list there was.
+      const decided = await request(app.getHttpServer())
+        .get('/review/intakes')
+        .query({ status: 'approved,rejected' });
+      expect(decided.status).toBe(200);
+      expect((decided.body as ReviewQueueEntry[]).map((entry) => entry.id).sort()).toEqual(
+        [ids.approved, ids.rejected].sort(),
+      );
     });
 
     it('filters by origin', async () => {
@@ -451,6 +591,62 @@ describe('B3 intake and review API', () => {
       const ids = (response.body as ReviewQueueEntry[]).map((e) => e.id);
 
       expect(ids.indexOf(first)).toBeLessThan(ids.indexOf(second));
+    });
+
+    it('sorts a draft by its creation date, not to either end of the line', async () => {
+      const { id: before } = await submitIntake();
+      const { id: draft } = await createDraft();
+      const { id: after } = await submitIntake();
+
+      // Stamped rather than raced: three rows an hour apart on the one line
+      // the queue sorts on, whatever the clock did while the test ran. Only
+      // `intake_status` is trigger-guarded, so these columns take an UPDATE.
+      await dataSource.query(`UPDATE patient SET submitted_at = ? WHERE id = ?`, [
+        '2026-01-01T09:00:00.000Z',
+        before,
+      ]);
+      await dataSource.query(`UPDATE patient SET created_at = ? WHERE id = ?`, [
+        '2026-01-01T10:00:00.000Z',
+        draft,
+      ]);
+      await dataSource.query(`UPDATE patient SET submitted_at = ? WHERE id = ?`, [
+        '2026-01-01T11:00:00.000Z',
+        after,
+      ]);
+
+      const response = await request(app.getHttpServer())
+        .get('/review/intakes')
+        .query({ status: 'draft,auto_cleared' });
+      expect(response.status).toBe(200);
+
+      // Not first, which is where a null sort key would have put it.
+      expect((response.body as ReviewQueueEntry[]).map((entry) => entry.id)).toEqual([
+        before,
+        draft,
+        after,
+      ]);
+    });
+
+    it('orders a draft by its creation date, the same way twice', async () => {
+      const ids = await patientInEveryStatus();
+      const everyStatus = QUEUE_STATUSES.join(',');
+
+      const load = async (): Promise<string[]> => {
+        const response = await request(app.getHttpServer())
+          .get('/review/intakes')
+          .query({ status: everyStatus });
+        expect(response.status).toBe(200);
+        return (response.body as ReviewQueueEntry[]).map((entry) => entry.id);
+      };
+
+      const first = await load();
+      const second = await load();
+
+      expect(first).toHaveLength(8);
+      // The draft was made before any of the others, and having no submission
+      // date does not move it to either end.
+      expect(first[0]).toBe(ids.draft);
+      expect(second).toEqual(first);
     });
   });
 

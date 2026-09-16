@@ -29,12 +29,21 @@ type RequestState =
 
 type OriginFilter = 'all' | PatientOrigin;
 
-/** The four statuses this queue may be filtered to (2.4) — `auto_rejected` starts unticked, the one 2.4 calls out as "selectable" rather than shown by default. */
+/**
+ * Every status this queue may be filtered to (2.4), the ticked three first.
+ * The other five are offered rather than hidden: a patient a reviewer has
+ * just decided on, or one still drafting, would otherwise be on no screen at
+ * all.
+ */
 const QUEUE_STATUSES: readonly IntakeStatus[] = [
   'auto_flagged',
   'auto_cleared',
   'in_review',
   'auto_rejected',
+  'draft',
+  'submitted',
+  'approved',
+  'rejected',
 ];
 
 const DEFAULT_STATUSES: readonly IntakeStatus[] = ['auto_flagged', 'auto_cleared', 'in_review'];
@@ -109,7 +118,8 @@ export function ReviewQueuePage() {
         <Stack gap={4}>
           <Title order={1}>Review</Title>
           <Text size="sm" c="dimmed">
-            One queue for intake and legacy patients alike (2.4). Oldest submission first.
+            One queue for intake and legacy patients alike (2.4). Oldest first, by submission date —
+            or by creation date for a draft, which has none.
           </Text>
         </Stack>
 

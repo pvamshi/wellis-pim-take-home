@@ -5,20 +5,21 @@ import type { ConsentEvent } from '../consent/consent-event.entity';
 import { ConsentEventsService } from '../consent/consent-events.service';
 import { computeAgeYears } from '../eligibility/age';
 import { IntakeStateMachine } from '../patient/intake-state-machine.service';
-import type { IntakeStatus, PatientOrigin } from '../patient/intake-status';
+import { INTAKE_STATUSES, type IntakeStatus, type PatientOrigin } from '../patient/intake-status';
 import { Patient, type EvaluationEntry } from '../patient/patient.entity';
 import { answersOf, type PatientAnswers } from '../patient/patient-answers';
 import { fieldError, type FieldError } from '../patient/validation/field-error';
 
-/** The four statuses the queue may be filtered to (2.4) — every other status is a decision already made, off this screen. */
-export const QUEUE_STATUSES: readonly IntakeStatus[] = [
-  'auto_cleared',
-  'auto_flagged',
-  'auto_rejected',
-  'in_review',
-];
+/**
+ * Every status the queue may be filtered to (2.4) — the whole of 2.2, not a
+ * subset of it, so a row is never off every screen. A decided patient, and an
+ * unfinished draft, stay findable on a list rather than only by pasting a
+ * uuid into the detail route. Taken from `INTAKE_STATUSES` rather than
+ * restated, so a ninth status could not be born unreachable.
+ */
+export const QUEUE_STATUSES: readonly IntakeStatus[] = INTAKE_STATUSES;
 
-/** The queue's own default (2.4): `auto_rejected` is selectable, not shown unasked. */
+/** The queue's own default (2.4): the work waiting, and nothing else. Every other status is selectable, not shown unasked. */
 export const DEFAULT_QUEUE_STATUSES: readonly IntakeStatus[] = [
   'auto_flagged',
   'auto_cleared',
@@ -129,7 +130,7 @@ export class ReviewService {
     private readonly consentEvents: ConsentEventsService,
   ) {}
 
-  /** The queue (2.4): default filter, or the caller's own subset of the four selectable statuses, oldest submission first. */
+  /** The queue (2.4): default filter, or the caller's own subset of any status, oldest first. */
   async queue(filter: QueueFilter): Promise<ReviewQueueEntry[]> {
     const statuses = filter.statuses ?? DEFAULT_QUEUE_STATUSES;
 
@@ -137,7 +138,15 @@ export class ReviewService {
       .getRepository(Patient)
       .createQueryBuilder('patient')
       .where('patient.intake_status IN (:...statuses)', { statuses })
-      .orderBy('patient.submitted_at', 'ASC');
+      // "Oldest first" reads on `submitted_at`, which a draft has not got. It
+      // falls back to `created_at` rather than sorting as null, so a draft
+      // takes its own place in the one line by when it started, instead of
+      // bunching every draft at whichever end the dialect puts nulls. `id`
+      // then breaks exact ties: without it rows sharing a timestamp come back
+      // in whatever order SQLite likes, which need not be the same order
+      // twice, and the same two loads would disagree.
+      .orderBy('COALESCE(patient.submitted_at, patient.created_at)', 'ASC')
+      .addOrderBy('patient.id', 'ASC');
 
     if (filter.origin !== undefined) {
       query.andWhere('patient.origin = :origin', { origin: filter.origin });
@@ -232,7 +241,7 @@ export class ReviewService {
   }
 }
 
-/** Age at submission (2.7's own convention), or today's for a row never submitted (a defensive fallback — every queued/decided row has a `submittedAt`). */
+/** Age at submission (2.7's own convention), or today's for a draft, which has not been submitted yet and whose age is therefore still moving. */
 function ageAt(patient: Patient): number {
   const asOf = patient.submittedAt !== null ? new Date(patient.submittedAt) : new Date();
 

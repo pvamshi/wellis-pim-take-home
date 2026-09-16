@@ -207,9 +207,15 @@ One queue for both origins.
 
 **Queue** — `GET /review/intakes`
 
-- Default filter: `auto_flagged`, `auto_cleared`, `in_review`; `auto_rejected` selectable.
+- All eight statuses are selectable. No status is off this screen: a decided
+  patient stays on a list, not only behind its own uuid.
+- Default filter: `auto_flagged`, `auto_cleared`, `in_review` — the work
+  waiting. The other five are selectable, not shown unasked.
 - Filter by `origin`.
-- Columns: submitted, origin, age, BMI, status, matched flags. Oldest first. Virtualised.
+- Columns: submitted, origin, age, BMI, status, matched flags. Virtualised.
+- Oldest first, on submission date. A draft has none, so it sorts on its
+  creation date instead. Ties break on id, so two loads agree.
+- A draft shows `—` for submission date and BMI, and its age as of today.
 
 **Detail** — `GET /review/intakes/:id`
 
