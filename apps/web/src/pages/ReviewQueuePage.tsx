@@ -10,7 +10,6 @@ import {
   Group,
   Loader,
   Paper,
-  SegmentedControl,
   Stack,
   Text,
   Title,
@@ -26,8 +25,6 @@ type RequestState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'loaded'; readonly rows: ReviewQueueEntry[] }
   | { readonly kind: 'failed'; readonly error: ApiError };
-
-type OriginFilter = 'all' | PatientOrigin;
 
 /**
  * Every status this queue may be filtered to (2.4), the ticked three first.
@@ -48,11 +45,25 @@ const QUEUE_STATUSES: readonly IntakeStatus[] = [
 
 const DEFAULT_STATUSES: readonly IntakeStatus[] = ['auto_flagged', 'auto_cleared', 'in_review'];
 
-const ORIGIN_FILTER_DATA = [
-  { label: 'All', value: 'all' },
-  { label: 'Intake', value: 'intake' },
-  { label: 'Legacy', value: 'legacy' },
-];
+/**
+ * What each tab is, in its own words. The origin is now the tab rather than a
+ * control on one screen: the two kinds of patient arrive by different doors —
+ * a form somebody filled in, and a spreadsheet somebody exported — and asking
+ * after one meant reading past the other. Each heading names where the rest
+ * are, so neither tab reads as the whole queue.
+ */
+const HEADINGS: Record<PatientOrigin, { readonly title: string; readonly blurb: string }> = {
+  intake: {
+    title: 'Intakes',
+    blurb:
+      'Patients who filled in the intake form themselves (2.4). Oldest first, by submission date — or by creation date for a draft, which has none. Imported legacy patients are on the Review tab.',
+  },
+  legacy: {
+    title: 'Review',
+    blurb:
+      'Patients imported from the legacy export (2.4). Oldest first, by submission date — or by creation date for one that has none. Patients from the intake form are on the Intakes tab.',
+  },
+};
 
 const ROW_HEIGHT = 56;
 
@@ -61,17 +72,21 @@ function formatSubmitted(value: string | null): string {
   return new Date(value).toLocaleString();
 }
 
+interface ReviewQueuePageProps {
+  /** Which door the patients on this tab came through. Fixed by the route, not chosen on the screen. */
+  readonly origin: PatientOrigin;
+}
+
 /**
- * `/review` (2.4): one queue over both origins, virtualised, filtered by
- * status and origin. Each row opens `/review/:id`, its own route rather than
- * an inline expansion — unlike the rows screen, this screen's detail is
- * substantial enough (answers by step, every rule, a full history) to want a
- * page of its own.
+ * `/review` and `/intakes` (2.4): one queue per origin, virtualised, filtered
+ * by status. Each row opens `/review/:id` whichever tab it was on — that
+ * detail is the same screen for both origins, its own route rather than an
+ * inline expansion, because it is substantial enough (answers by step, every
+ * rule, a full history) to want a page of its own.
  */
-export function ReviewQueuePage() {
+export function ReviewQueuePage({ origin }: ReviewQueuePageProps) {
   const [state, setState] = useState<RequestState>({ kind: 'loading' });
   const [statuses, setStatuses] = useState<string[]>([...DEFAULT_STATUSES]);
-  const [origin, setOrigin] = useState<OriginFilter>('all');
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -81,7 +96,7 @@ export function ReviewQueuePage() {
     getReviewQueue(
       {
         statuses: statuses as IntakeStatus[],
-        origin: origin === 'all' ? undefined : origin,
+        origin,
       },
       controller.signal,
     )
@@ -101,6 +116,7 @@ export function ReviewQueuePage() {
   }, [statuses, origin, attempt]);
 
   const rows = state.kind === 'loaded' ? state.rows : [];
+  const heading = HEADINGS[origin];
   // Scrolls with the page, like `RowsPage`.
   const list = useListTop<HTMLDivElement>();
   const virtualizer = useWindowVirtualizer({
@@ -116,10 +132,9 @@ export function ReviewQueuePage() {
         <AppNav />
 
         <Stack gap={4}>
-          <Title order={1}>Review</Title>
+          <Title order={1}>{heading.title}</Title>
           <Text size="sm" c="dimmed">
-            One queue for intake and legacy patients alike (2.4). Oldest first, by submission date —
-            or by creation date for a draft, which has none.
+            {heading.blurb}
           </Text>
         </Stack>
 
@@ -138,12 +153,6 @@ export function ReviewQueuePage() {
               </Group>
             </Chip.Group>
           </Stack>
-          <SegmentedControl
-            value={origin}
-            onChange={(value) => setOrigin(value as OriginFilter)}
-            data={ORIGIN_FILTER_DATA}
-            aria-label="Filter by origin"
-          />
         </Group>
 
         {state.kind === 'loading' && (

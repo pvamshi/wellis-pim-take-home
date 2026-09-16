@@ -16,7 +16,13 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { ApiError, decideReview, getReviewDetail, reviewIntakeUrl, startReview } from '../api/client';
+import {
+  ApiError,
+  decideReview,
+  getReviewDetail,
+  reviewIntakeUrl,
+  startReview,
+} from '../api/client';
 import type { AuditEvent, EvaluationEntry, ReviewDetail } from '../api/types';
 import { AnswerGroups } from '../components/review/AnswerGroups';
 import { AppNav } from '../components/AppNav';
@@ -140,7 +146,13 @@ export function ReviewDetailPage() {
     startReview(id, actor)
       .then((outcome) => {
         if (outcome.outcome === 'conflict') {
-          setActionError(new ApiError('This row is no longer awaiting review.', 409, reviewIntakeUrl(id, '/start')));
+          setActionError(
+            new ApiError(
+              'This row is no longer awaiting review.',
+              409,
+              reviewIntakeUrl(id, '/start'),
+            ),
+          );
           refresh();
           return;
         }
@@ -148,7 +160,9 @@ export function ReviewDetailPage() {
       })
       .catch((cause: unknown) => {
         setActionError(
-          cause instanceof ApiError ? cause : new ApiError(String(cause), null, reviewIntakeUrl(id)),
+          cause instanceof ApiError
+            ? cause
+            : new ApiError(String(cause), null, reviewIntakeUrl(id)),
         );
       })
       .finally(() => setBusy(false));
@@ -166,7 +180,9 @@ export function ReviewDetailPage() {
     decideReview(id, decision, trimmedNote, actor)
       .then((outcome) => {
         if (outcome.outcome === 'conflict') {
-          setActionError(new ApiError('This row is no longer in review.', 409, reviewIntakeUrl(id, '/decide')));
+          setActionError(
+            new ApiError('This row is no longer in review.', 409, reviewIntakeUrl(id, '/decide')),
+          );
           refresh();
           return;
         }
@@ -185,7 +201,9 @@ export function ReviewDetailPage() {
       })
       .catch((cause: unknown) => {
         setActionError(
-          cause instanceof ApiError ? cause : new ApiError(String(cause), null, reviewIntakeUrl(id)),
+          cause instanceof ApiError
+            ? cause
+            : new ApiError(String(cause), null, reviewIntakeUrl(id)),
         );
       })
       .finally(() => setBusy(false));
@@ -200,7 +218,17 @@ export function ReviewDetailPage() {
           <Stack gap={4}>
             <Title order={1}>Review</Title>
             <Text size="sm" c="dimmed">
-              <Anchor component={Link} to="/review">
+              {/* Back to the tab this patient is actually on (2.4): an intake
+                  patient is not on `/review`, so a fixed link would land the
+                  reviewer on a list their patient is missing from. */}
+              <Anchor
+                component={Link}
+                to={
+                  state.kind === 'loaded' && state.detail.origin === 'intake'
+                    ? '/intakes'
+                    : '/review'
+                }
+              >
                 Back to the queue
               </Anchor>
             </Text>
@@ -241,7 +269,12 @@ export function ReviewDetailPage() {
         {state.kind === 'loaded' && (
           <Stack gap="xl">
             {actionError !== null && (
-              <Alert color="red" title="That press did not land" withCloseButton onClose={() => setActionError(null)}>
+              <Alert
+                color="red"
+                title="That press did not land"
+                withCloseButton
+                onClose={() => setActionError(null)}
+              >
                 <Text size="sm">{actionError.message}</Text>
               </Alert>
             )}
@@ -255,7 +288,8 @@ export function ReviewDetailPage() {
               </Text>
               <Text size="sm">Age {state.detail.age}</Text>
               <Text size="sm" c="dimmed">
-                Submitted {state.detail.submittedAt === null ? '—' : formatAt(state.detail.submittedAt)}
+                Submitted{' '}
+                {state.detail.submittedAt === null ? '—' : formatAt(state.detail.submittedAt)}
               </Text>
               {state.detail.decidedAt !== null && (
                 <Text size="sm" c="dimmed">

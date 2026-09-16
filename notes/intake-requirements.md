@@ -32,7 +32,8 @@ Existing and unchanged: `legacy`, `rules`, `rows`, `duplicates`.
 |---|---|---|
 | `/intake`, `/intake/:id/:step` | multi-step form (2.3) | patient, no staff nav |
 | `/intake/:id/done` | received, neutral status | patient |
-| `/review`, `/review/:id` | queue and detail (2.4) | staff |
+| `/review`, `/intakes` | one queue per origin, legacy and intake (2.4) | staff |
+| `/review/:id` | detail, whichever tab it was opened from (2.4) | staff |
 | `/rows` | gains Import, bulk selection and errors (2.6) | staff |
 | `/rules`, `/duplicates` | unchanged | staff |
 
@@ -203,7 +204,11 @@ deterministic rule must never read an unanswered question as "no".
 
 ## 2.4 The review view
 
-One queue for both origins.
+One queue per origin, on its own tab: `/review` is the legacy import, `/intakes`
+is the people who filled in the form. Both read the same endpoint and open the
+same detail; the origin is the tab rather than a control on one screen, because
+asking after an intake patient meant reading past the import to find them. Each
+heading names the other tab, so neither reads as the whole queue.
 
 **Queue** — `GET /review/intakes`
 
@@ -211,8 +216,10 @@ One queue for both origins.
   patient stays on a list, not only behind its own uuid.
 - Default filter: `auto_flagged`, `auto_cleared`, `in_review` — the work
   waiting. The other five are selectable, not shown unasked.
-- Filter by `origin`.
-- Columns: submitted, origin, age, BMI, status, matched flags. Virtualised.
+- `origin` is fixed by the tab, not chosen on the screen.
+- Columns: patient, submitted, origin, age, BMI, status, matched flags.
+  Virtualised. The name comes first: a line has to read as a person, not as a
+  uuid behind a date.
 - Oldest first, on submission date. A draft has none, so it sorts on its
   creation date instead. Ties break on id, so two loads agree.
 - A draft shows `—` for submission date and BMI, and its age as of today.

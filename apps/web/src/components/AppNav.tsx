@@ -37,6 +37,9 @@ export function AppNav() {
           <NavLink to="/review" style={LINK_STYLE}>
             Review
           </NavLink>
+          <NavLink to="/intakes" style={LINK_STYLE}>
+            Intakes
+          </NavLink>
         </Group>
         <Button
           component="a"

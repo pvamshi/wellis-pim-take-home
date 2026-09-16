@@ -30,7 +30,8 @@ export default function App() {
       <Route path="/rules" element={<RulesPage />} />
       <Route path="/rows" element={<RowsPage />} />
       <Route path="/duplicates" element={<DuplicatesPage />} />
-      <Route path="/review" element={<ReviewQueuePage />} />
+      <Route path="/review" element={<ReviewQueuePage origin="legacy" />} />
+      <Route path="/intakes" element={<ReviewQueuePage origin="intake" />} />
       <Route path="/review/:id" element={<ReviewDetailPage />} />
       <Route path="/health" element={<HealthPage />} />
       <Route path="/intake" element={<IntakePage />} />
