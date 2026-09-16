@@ -300,17 +300,24 @@ export async function approveRule(ruleId: string): Promise<ApproveReport> {
  * is not `reasonField`'s blank-means-absent rule. The backend refuses it for a
  * row that already proposes a value.
  *
- * `note` says why it is that value, and is required with one: the backend
- * answers 400 without it.
+ * `note` says why it is that value. It is optional: the rule's description
+ * already says what is wrong with the row, so the value is the answer.
  */
 export async function approveRow(
   ruleId: string,
   row: RuleRowAddress,
-  supplied?: { readonly value: string; readonly note: string },
+  supplied?: { readonly value: string; readonly note?: string },
 ): Promise<ApproveReport> {
   return await requestJson<ApproveReport>(ruleUrl(ruleId, '/rows/approve'), {
     method: 'POST',
-    body: supplied === undefined ? row : { ...row, value: supplied.value, note: supplied.note },
+    body:
+      supplied === undefined
+        ? row
+        : {
+            ...row,
+            value: supplied.value,
+            ...(supplied.note === undefined ? {} : { note: supplied.note }),
+          },
   });
 }
 

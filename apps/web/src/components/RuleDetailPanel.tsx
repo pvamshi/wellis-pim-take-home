@@ -196,14 +196,14 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
    * rule proposes nothing, so there is nothing for a bare approve to write, and
    * this is what gives such a row a way to be settled other than declining it.
    * Blank is a real answer — it says the column should hold nothing — so it is
-   * sent like any other, with the note saying why.
+   * sent like any other.
    */
-  function onRowApproveWithValue(row: RuleDetailRow, value: string, note: string) {
+  function onRowApproveWithValue(row: RuleDetailRow, value: string) {
     const address = addressOf(row);
     if (address === null) return;
 
     press(async () => {
-      const report = await approveRow(ruleId, address, { value, note });
+      const report = await approveRow(ruleId, address, { value });
       return report.approved === 0
         ? `Nothing to set on ${detail.ruleName}: ${address.table} ${address.legacyId}, ${address.column} was already settled.`
         : `Set ${address.table} ${address.legacyId}, ${address.column} to "${value}", updating ${rowCount(report.updated)} of legacy data.`;
@@ -317,7 +317,7 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
           <Text size="sm">
             It can tell that these rows are wrong but not what they should be — the description
             above is the whole of what it found. So there is nothing to tick: type what the column
-            should hold and press Apply, or decline the row to leave it as it is and never be asked
+            should hold and press Update, or decline the row to leave it as it is and never be asked
             again. If the rule is asking the wrong question altogether, send it for revision
             instead.
           </Text>

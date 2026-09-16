@@ -802,7 +802,7 @@ describe('approving rule rows', () => {
     ]);
   });
 
-  it('writes a value supplied for an ambiguous finding only with a note, and keeps the note', async () => {
+  it('writes a value supplied for an ambiguous finding, keeping a note when one is given', async () => {
     await seedRule('R-TYPED', [1], 1);
     await seedFindings(patientRules, [
       {
@@ -812,17 +812,21 @@ describe('approving rule rows', () => {
         previousValue: '0612345678',
         nextValue: null,
       },
+      {
+        legacyId: 'P-3',
+        ruleId: 'R-TYPED',
+        column: 'phone',
+        previousValue: '0698765432',
+        nextValue: null,
+      },
     ]);
 
     const address = { table: 'patient', legacyId: 'P-1', version: 1, column: 'phone' };
 
-    // No rule proposed this value, so without a note nothing would explain it
-    // (1.2.13). A note with no value has nothing to explain.
-    const noNote = await approveRow('R-TYPED', { ...address, value: '+31612345678' });
-    const blankNote = await approveRow('R-TYPED', { ...address, value: '+31612345678', note: ' ' });
+    // A note with no value has nothing to explain.
     const noteAlone = await approveRow('R-TYPED', { ...address, note: 'nothing to explain' });
 
-    expect([noNote.status, blankNote.status, noteAlone.status]).toEqual([400, 400, 400]);
+    expect(noteAlone.status).toBe(400);
     expect((await patient('P-1')).phone).toBe('0612345678');
 
     const noted = await approveRow('R-TYPED', {
@@ -841,6 +845,21 @@ describe('approving rule rows', () => {
       nextValue: '+31612345678',
       reason: 'Confirmed on the phone',
     });
+
+    // The value is the answer: the row takes it with no note at all (1.2.13).
+    const bare = await approveRow('R-TYPED', {
+      table: 'patient',
+      legacyId: 'P-3',
+      version: 1,
+      column: 'phone',
+      value: '+31698765432',
+    });
+
+    expect(bare.status).toBe(200);
+    expect((await patient('P-3')).phone).toBe('+31698765432');
+    expect(
+      await patientRules.findOneBy({ legacyId: 'P-3', ruleId: 'R-TYPED', column: 'phone' }),
+    ).toMatchObject({ status: 'approved', nextValue: '+31698765432', reason: null });
   });
 
   it('refuses a finding whose legacy id matches no legacy row', async () => {

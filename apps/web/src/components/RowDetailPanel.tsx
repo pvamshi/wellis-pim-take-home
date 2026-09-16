@@ -200,17 +200,12 @@ export function RowDetailPanel({
     });
   }
 
-  /** The human's own answer to a finding the rule could not answer (1.1.12, 1.2.13), with why. */
-  function onFindingApproveWithValue(
-    group: RowDetailRuleGroup,
-    row: RuleDetailRow,
-    value: string,
-    note: string,
-  ) {
+  /** The human's own answer to a finding the rule could not answer (1.1.12, 1.2.13). */
+  function onFindingApproveWithValue(group: RowDetailRuleGroup, row: RuleDetailRow, value: string) {
     const address = addressOf(group, row);
 
     press(async () => {
-      const report = await approveRow(group.ruleId, address, { value, note });
+      const report = await approveRow(group.ruleId, address, { value });
       return report.approved === 0
         ? `Nothing to set: ${legacyId}, ${address.column} was already settled.`
         : `Set ${address.column} on ${legacyId} to "${value}".`;
@@ -626,8 +621,8 @@ export function RowDetailPanel({
                       ? {
                           onApprove: (row) => onFindingApprove(group, row),
                           onDecline: (row) => onFindingDecline(group, row),
-                          onApproveWithValue: (row, value, note) =>
-                            onFindingApproveWithValue(group, row, value, note),
+                          onApproveWithValue: (row, value) =>
+                            onFindingApproveWithValue(group, row, value),
                           onDeclineWithReason: (row, reason) =>
                             onFindingDeclineWithReason(group, row, reason),
                           busy,

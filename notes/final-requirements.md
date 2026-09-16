@@ -708,8 +708,12 @@ it.
 The note is required. A rule's change is explained by the rule that made it; a
 change made by hand has only what the human says about it. It is kept as the
 finding's reason, the column a decline's reason already uses, and the row's log
-shows it beside the change. A value typed for an ambiguous finding (1.2.13) is a
-change by hand too, and carries a required note the same way.
+shows it beside the change.
+
+A value typed for an ambiguous finding (1.2.13) may carry a note, but is never
+held to one. That row has a rule behind it, and the rule's description already
+says what is wrong; the value is the answer. It offers two boxes and no more —
+the value, with **Update**, and the reason to leave it, with **Decline**.
 
 ---
 

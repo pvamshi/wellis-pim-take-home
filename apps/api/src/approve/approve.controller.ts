@@ -101,10 +101,12 @@ function readAddress(ruleId: string, body: unknown): RuleRowAddress {
  * answer to "what should this be", and refusing it here would mean the one
  * answer the screen cannot give is the empty one.
  *
- * A value no rule proposed is a change with no rule to explain it, so it needs
- * a note saying why, exactly as a hand edit does (1.6.7): a missing or blank
- * note is a 400. A note with no value has nothing to explain, and is a 400
- * rather than being dropped without a word.
+ * A note saying why it is that value is optional, and kept when it is given:
+ * the rule's own description already says what is wrong with the row, so the
+ * value is the answer and the screen asks for nothing else. A note with no
+ * value has nothing to explain, and is a 400 rather than being dropped without
+ * a word. A hand edit (1.6.7), which has no rule behind it at all, does require
+ * one.
  */
 function readSuppliedValue(body: unknown): SuppliedValue | undefined {
   const { value, note } = body as Record<string, unknown>;
@@ -121,11 +123,15 @@ function readSuppliedValue(body: unknown): SuppliedValue | undefined {
     throw new BadRequestException('value must be a string when it is given');
   }
 
-  if (typeof note !== 'string' || note.trim().length === 0) {
-    throw new BadRequestException('a note is required with a value you supply: say why it is that value');
+  if (note === undefined || note === null) {
+    return { value, note: null };
   }
 
-  return { value, note: note.trim() };
+  if (typeof note !== 'string') {
+    throw new BadRequestException('note must be a string when it is given');
+  }
+
+  return { value, note: note.trim().length === 0 ? null : note.trim() };
 }
 
 /**

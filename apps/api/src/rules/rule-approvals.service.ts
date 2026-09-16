@@ -97,7 +97,8 @@ export interface RuleRowAddress {
  */
 export interface SuppliedValue {
   readonly value: string;
-  readonly note: string;
+  /** Why it is that value, when the human wrote one. Optional — the rule's description already says what was wrong. */
+  readonly note: string | null;
 }
 
 /**
@@ -490,7 +491,12 @@ export class RuleApprovalsService {
         // can happen to, which is what says a human typed it.
         {
           status: 'approved',
-          ...(supplied === undefined ? {} : { nextValue: supplied.value, reason: supplied.note }),
+          ...(supplied === undefined
+            ? {}
+            : {
+                nextValue: supplied.value,
+                ...(supplied.note === null ? {} : { reason: supplied.note }),
+              }),
         },
       );
 

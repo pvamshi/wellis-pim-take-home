@@ -41,10 +41,11 @@ export interface RuleRowActions {
    * that one opens the dialog, which is where the tick that parks the whole
    * version lives (1.2.8).
    *
-   * A typed value carries a note saying why it is that value: no rule proposed
-   * it, so the note is what the row's log shows in the rule's place.
+   * Two boxes and no more: the value to write, and the reason to leave it. The
+   * rule's own description already says what is wrong with the row, so the
+   * value is the answer and nothing else is asked for.
    */
-  readonly onApproveWithValue: (row: RuleDetailRow, value: string, note: string) => void;
+  readonly onApproveWithValue: (row: RuleDetailRow, value: string) => void;
   readonly onDeclineWithReason: (row: RuleDetailRow, reason: string) => void;
   /** True while a press is in flight: every button is disabled until it lands. */
   readonly busy: boolean;
@@ -118,39 +119,27 @@ function keyOf(row: RuleDetailRow): string {
  */
 function AmbiguousRowActions({ row, actions }: { row: RuleDetailRow; actions: RuleRowActions }) {
   const [value, setValue] = useState(row.previousValue ?? '');
-  const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
 
   return (
     <Stack gap={6}>
       <Group gap={6} wrap="nowrap" align="flex-start">
-        <Stack gap={4}>
-          <TextInput
-            size="xs"
-            w={200}
-            value={value}
-            placeholder="What this column should hold"
-            aria-label={`Value for ${row.table} ${row.legacyId} ${row.column}`}
-            disabled={actions.busy}
-            onChange={(event) => setValue(event.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            w={200}
-            value={note}
-            placeholder="Why this value (required)"
-            aria-label={`Note for the value of ${row.table} ${row.legacyId} ${row.column}`}
-            disabled={actions.busy}
-            onChange={(event) => setNote(event.currentTarget.value)}
-          />
-        </Stack>
+        <TextInput
+          size="xs"
+          w={200}
+          value={value}
+          placeholder="What this column should hold"
+          aria-label={`Value for ${row.table} ${row.legacyId} ${row.column}`}
+          disabled={actions.busy}
+          onChange={(event) => setValue(event.currentTarget.value)}
+        />
         <Button
           size="xs"
           color="green"
-          disabled={actions.busy || note.trim() === ''}
-          onClick={() => actions.onApproveWithValue(row, value, note.trim())}
+          disabled={actions.busy}
+          onClick={() => actions.onApproveWithValue(row, value)}
         >
-          Apply
+          Update
         </Button>
       </Group>
       <Group gap={6} wrap="nowrap" align="flex-start">
