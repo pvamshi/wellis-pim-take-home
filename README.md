@@ -139,6 +139,9 @@ flowchart LR
   on both columns together.
 - **Part C's combined queue, conflict view and patient page.** The queue, decision
   and log each exist per source; joining them is the next piece of work.
+- **Rewriting a rule automatically (D7).** Guidance on a rule parks its version and
+  queues it; the agent writes the next version only when a person runs the revision
+  workflow. Nothing rewrites rule code on its own, and no rule activates unread.
 - **Authentication.** Staff type their name, which becomes the audit actor.
 - **Open data question:** a weight with no unit. P47 is in the revision queue; the
   18 such rows wait for a person, and a blank unit fails import.

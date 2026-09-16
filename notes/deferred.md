@@ -41,6 +41,19 @@ README as a stated choice.
   converts a pounds weight. Still not built: showing those columns on screen as
   one change rather than as separate lines.
 
+## D7. Rewriting a rule without a person starting it
+- Guidance typed on a rule parks its active version and files the reason. The
+  next version is written by an agent running the revision workflow, and that
+  workflow is started by hand. Nothing watches the queue, and no rule rewrites
+  itself.
+- Why: a rule is code, and an active one changes patient data. An agent that
+  wrote and activated a version unattended would put changes into the data with
+  nobody having read the rule that made them. The queue is what keeps a person
+  between the guidance and the code.
+- What it costs: the loop is not closed end to end. Guidance waits in
+  `needsReview` until someone runs the workflow, so a parked rule — its rows
+  visible and undecided — stays parked for as long as nobody looks.
+
 ## D2. Reversing an accepted modification
 - Once the user accepts a proposal, the change is final. There is no undo, and no
   replay of a rule's earlier version over data it already changed.
