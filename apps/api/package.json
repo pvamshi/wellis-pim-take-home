@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
+    "build:serverless": "nest build && esbuild dist/serverless.js --bundle --platform=node --format=esm --target=node22 --outfile=dist/serverless.bundle.mjs --external:libsql --external:@nestjs/microservices --external:@nestjs/microservices/microservices-module.js --external:@nestjs/websockets/socket-module.js --external:class-transformer --external:class-validator --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
     "start": "node dist/main.js",
     "import": "nest build && node dist/import/import-legacy.js",
     "revise": "nest build && node dist/revision/revision-cli.js",
@@ -32,6 +33,7 @@
     "@swc/core": "^1.16.2",
     "@types/node": "^22.20.2",
     "@types/supertest": "^7.2.1",
+    "esbuild": "^0.28.2",
     "supertest": "^7.2.2",
     "typescript": "^6.0.3",
     "unplugin-swc": "^1.6.0",

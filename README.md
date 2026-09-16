@@ -7,7 +7,7 @@ what needs human eyes.
 
 All patient data in this repository is synthetic.
 
-- **Deployed:** _URL to be added at deploy_
+- **Deployed:** <https://wellis-pim.vercel.app>
 - **Import report:** [IMPORT-REPORT.md](IMPORT-REPORT.md)
 - **How the agents were directed:** [AGENT-NOTES.md](AGENT-NOTES.md), the workflow
   scripts in [`.claude/workflows/`](.claude/workflows/), and the session traces in
@@ -145,7 +145,20 @@ flowchart LR
 
 ## Deploying
 
-The deployed instance is seeded from a locally built database: run the import, sync
-the rules, apply them and make decisions locally, then upload
-`apps/api/data/dev.sqlite` to Turso. Set `DATABASE_URL` to the `libsql://` URL and `TURSO_AUTH_TOKEN`; nothing
-else changes. The web app needs `VITE_API_BASE_URL` pointed at the deployed API.
+Live at <https://wellis-pim.vercel.app>: one project serving both halves from one
+origin — the built web app at `/`, the whole API as a single function at `/api`.
+That is why `VITE_API_BASE_URL` is `/api` there, and why nothing needs CORS.
+
+The database is Turso, created straight from a snapshot of the local
+`apps/api/data/dev.sqlite` rather than filled afterwards, so the deployed
+instance holds the imported dataset and every decision already made against it.
+`DATABASE_URL` is the `libsql://` URL and `TURSO_AUTH_TOKEN` its token; the
+scheme alone still selects the driver.
+
+Three things the platform forced, each a line of code with a comment saying why:
+Nest 12 is ESM-only and the function runtime cannot require ESM from CommonJS,
+so `build:serverless` bundles the compiled API with esbuild; the native `libsql`
+binary is reached through a computed `require` no bundler can trace, so
+`vercel.json` ships it explicitly; and the SQLite driver creates a directory
+named after its database path, which a read-only filesystem refuses, so the
+function works from the temp directory.

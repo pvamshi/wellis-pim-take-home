@@ -12,6 +12,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
+import globals from 'globals';
 
 export default [
   {
@@ -32,6 +33,13 @@ export default [
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    // The deployed function's entry point (`api/index.mjs`) is the only file
+    // outside an app that runs in Node, so its globals are declared here rather
+    // than in a fourth config nobody would think to look for.
+    files: ['api/*.mjs'],
+    languageOptions: { globals: globals.node },
+  },
   // Last, so it switches off every formatting rule that would fight Prettier.
   prettier,
 ];

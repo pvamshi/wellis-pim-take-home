@@ -20,7 +20,7 @@ import { buildDataSourceOptions, type ApiDataSourceOptions } from './database-ur
       envFilePath: ['.env', '../../.env'],
     }),
     TypeOrmModule.forRootAsync({
-      useFactory: (): ApiDataSourceOptions => {
+      useFactory: (): ApiDataSourceOptions & { retryAttempts: number } => {
         const options = buildDataSourceOptions(process.env);
 
         // Both branches set `driver` now, so the local case is the one whose
@@ -30,7 +30,12 @@ import { buildDataSourceOptions, type ApiDataSourceOptions } from './database-ur
           mkdirSync(dirname(options.database), { recursive: true });
         }
 
-        return options;
+        // One attempt, not ten. Nest's default retry answers a refused
+        // connection with "Unable to connect to the database. Retrying (1)...",
+        // which names neither the database nor the reason, and then spends
+        // thirty seconds doing it again — long enough that a deployed instance
+        // reports a timeout instead of the error it already had.
+        return { ...options, retryAttempts: 1 };
       },
     }),
   ],
