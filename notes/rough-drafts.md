@@ -3,7 +3,7 @@
 Raised, not settled. We know it matters; we do not yet know its shape.
 Every one of these gets picked up eventually.
 
-Nothing moves to `final-requirements.md` until Vamshi approves it.
+Nothing moves to `final-requirements.md` until the user approves it.
 
 Node 4 is not here. Decisions that are taken get lifted out into their own note —
 the tech stack lives in `tech-stack.md`, and that is what agents read. We follow
@@ -55,7 +55,7 @@ building against.
   cut. See `deferred.md` D4.
 
 ### 1.1 Rules engine
-- Rules are generated from the initial data structure plus feedback Vamshi gives.
+- Rules are generated from the initial data structure plus feedback the user gives.
 - The engine is living: every round of feedback updates the rules.
 - AI never applies a rule. AI only creates rules and collects feedback on them.
 
@@ -127,12 +127,12 @@ building against.
   along with the hints the old team left in there.
 - My own guess: a field of type date is likely to have these kinds of problems,
   so write the rule and see what it catches.
-- Vamshi's feedback: he names a problem, I derive rules from it.
+- The user's feedback: they name a problem, I derive rules from it.
 
 #### 1.1.8 Why we over-produce rules
 - Writing the code is cheap. So write as many rules as possible and catch as
   many problems as possible.
-- Whether a rule is *correct* is not decided by us — it is decided by Vamshi's
+- Whether a rule is *correct* is not decided by us — it is decided by the user's
   feedback in the UI.
 - That is affordable because one rule covers many rows. A single decision clears
   all of them at once.
@@ -149,7 +149,7 @@ building against.
 #### 1.1.9 Rule creation is not gated
 - There are not two layers of approval. AI is free to create as many rules as it
   wants, and a new rule runs against the data immediately.
-- The only gate is the UI: Vamshi sees the rules that matched something, and
+- The only gate is the UI: the user sees the rules that matched something, and
   approves, rejects or modifies them there.
 - A rule that matches nothing is invisible and costs nothing, so there is no
   reason to gate creation.
@@ -184,7 +184,7 @@ building against.
   exists.
 - We write the rule catalogue (1.1.1) once there is somewhere to put it, then
   decide what the UI looks like from what the rules actually produce.
-- Everything in 1.2.4 to 1.2.8 below is how it looks in Vamshi's head today, not
+- Everything in 1.2.4 to 1.2.8 below is how it looks in the user's head today, not
   a settled design. It gets revisited against the real catalogue.
 
 #### 1.2.4 The rules list
@@ -259,7 +259,7 @@ building against.
   produces a rule which looks clean while quietly carrying carve-outs nobody sees.
 
 ## 1.6 Rules database structure
-- Vamshi's structure. Replaces the six-table version I had proposed.
+- The user's structure. Replaces the six-table version I had proposed.
 
 ### 1.6.1 Rules: two tables
 - `rule` holds identity. `rule_version` holds the versions.
@@ -290,7 +290,7 @@ type RuleVersion = {
   `needsReview`.
 - So `needsReview` is the queue the revision workflow reads. Nothing else drives
   it.
-- Vamshi runs that workflow manually. No schedule, no trigger on write.
+- The user runs that workflow manually. No schedule, no trigger on write.
 
 #### 1.6.1.2 A revision may split into two rules
 - The workflow is not limited to writing a new version of the same rule.
@@ -372,7 +372,7 @@ type LegacyPatientRule = {
 - Agent 2 implements exactly what agent 1 settled.
 - Agent 3 reviews.
 - A unit whose requirements are not clear is not built. Its gaps come back to
-  Vamshi instead. Anything the clarify agent would have to invent counts as a
+  the user instead. Anything the clarify agent would have to invent counts as a
   gap, not an assumption.
 
 ### 5.2 Scaffold workflow

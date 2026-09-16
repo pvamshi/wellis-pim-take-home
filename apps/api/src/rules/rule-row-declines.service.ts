@@ -40,7 +40,7 @@ const declinableTables = new Map<string, EntityTarget<LegacyRuleRow>>([
  * stored value means. So the rule is restated where the write is, and a row
  * holding `" "` is no more a reason here than it is there — the revision
  * workflow (1.5.1) and the screen would both read a stray space as feedback
- * Vamshi typed.
+ * the user typed.
  */
 function storedReason(reason: string | null | undefined): string | null {
   if (typeof reason !== 'string') {

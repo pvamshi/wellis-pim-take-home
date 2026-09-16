@@ -483,7 +483,7 @@ describe('excluding a row and revising the rule', () => {
     // The reason is optional, exactly as it is for the other two presses
     // (1.2.6, 1.2.7): a ticked cross without one parks the rule and records
     // nothing in its place. A reason of only whitespace is the same press — a
-    // version holding " " would read as feedback Vamshi typed to the revision
+    // version holding " " would read as feedback the user typed to the revision
     // workflow (1.5.1) — and the padding around a real one is not part of what
     // he wrote.
     expect([absent.body.reason, nulled.body.reason, blank.body.reason]).toEqual([null, null, null]);

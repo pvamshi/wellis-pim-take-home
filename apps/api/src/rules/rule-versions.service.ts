@@ -30,7 +30,7 @@ export interface RuleDeclineReport {
  *
  * 1.2.6's second scenario is "no reason recorded", and a row holding `" "`
  * records one — the revision workflow (1.5.1) would read a stray space as
- * feedback Vamshi typed. Absent, null and blank are therefore one state.
+ * feedback the user typed. Absent, null and blank are therefore one state.
  */
 function storedReason(reason: string | null | undefined): string | null {
   if (typeof reason !== 'string') {

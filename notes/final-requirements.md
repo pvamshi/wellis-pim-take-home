@@ -1,6 +1,6 @@
 # Final requirements
 
-Settled. Nothing enters here without Vamshi's explicit approval. Numbers are
+Settled. Nothing enters here without the user's explicit approval. Numbers are
 addresses, not order — they are never renumbered or reordered.
 
 Open items live in `unresolved-questions.md`. Deliberate cuts live in
@@ -231,12 +231,12 @@ It is made inactive. Exactly one version of a rule is active at any time.
   the old team left there.
 - Informed guesses: a date column is likely to have these problems, so write the
   rule and see what it catches.
-- Vamshi's feedback: he names a problem, rules are derived from it.
+- The user's feedback: they name a problem, rules are derived from it.
 
 ### 1.1.10 We over-produce rules on purpose
 
 Writing the code is cheap, so write as many rules as possible and catch as many
-problems as possible. Whether a rule is *correct* is decided by Vamshi in the UI,
+problems as possible. Whether a rule is *correct* is decided by the user in the UI,
 not by us. That is affordable because one rule covers many rows — a single
 decision clears all of them.
 
@@ -514,7 +514,7 @@ against it.
 ```gherkin
 Scenario: the human supplies what the rule would not guess
   Given an ambiguous rule found a bad date of birth on patient P-0310
-  When Vamshi types the correct date and presses Apply
+  When the user types the correct date and presses Apply
   Then that value is written to the column
   And the finding records it and is approved
   And it is one transaction, as any approval is (1.2.5)
@@ -568,7 +568,7 @@ whether new patient intake (Part B) writes into the same tables.
 ```gherkin
 Scenario: the revision workflow runs
   Given one or more rule versions have needsReview true
-  When Vamshi runs the revision workflow manually
+  When the user runs the revision workflow manually
   Then each is revised into a new version
   And the new version becomes the active one
   And needsReview is cleared
@@ -582,7 +582,7 @@ Guidance is how a version enters that queue, and it is given on the rule itself.
 ```gherkin
 Scenario: telling a rule what to do instead
   Given P47 proposes kg for every weight whose unit is empty
-  When Vamshi writes "an empty unit is not always kilograms — decide it by the weight" and presses Update
+  When the user writes "an empty unit is not always kilograms — decide it by the weight" and presses Update
   Then P47's active version is parked with that guidance stored on it
   And no row of P47 is decided
   And the revision workflow reads the guidance as what to rewrite from
@@ -653,7 +653,7 @@ still undesigned; this is a screen over the legacy tables we already have.
 ```gherkin
 Scenario: the screen lists the dataset
   Given 2466 patients were imported
-  When Vamshi opens the rows screen
+  When the user opens the rows screen
   Then every one of them is listed with its state
   And the list can be filtered to one state
 ```
@@ -678,7 +678,7 @@ Scenario: a row nothing is waiting on
   Then its state is Import clean
 
 Scenario: a row somebody threw out
-  Given Vamshi rejects patient P-0781
+  Given the user rejects patient P-0781
   Then its state is Import rejected
   And it stays rejected however its findings later settle
 ```
@@ -694,7 +694,7 @@ decision somebody made, so it is a column on the row.
 ```gherkin
 Scenario: a row is opened
   Given patient P-0310 has findings from four rules
-  When Vamshi expands that row
+  When the user expands that row
   Then the findings are shown grouped by the rule that made them
   And each shows the column, the before and the after (1.2.3)
 ```
@@ -708,7 +708,7 @@ together: one row's, rather than one rule's.
 ```gherkin
 Scenario: everything proposed on one row is taken
   Given patient P-0310 has six pending findings, two of them from ambiguous rules
-  When Vamshi presses Approve all on that row
+  When the user presses Approve all on that row
   Then the four that propose a value are approved and written
   And the two ambiguous ones are left pending
   And the screen says two were left
@@ -730,7 +730,7 @@ the screen, not a shortcoming of it.
 ```gherkin
 Scenario: everything proposed on one row is refused
   Given patient P-0310 has six pending findings
-  When Vamshi presses Decline all on that row
+  When the user presses Decline all on that row
   Then all six are declined, ambiguous ones included
   And each is declined forever (1.2.9)
 ```
@@ -745,7 +745,7 @@ meaning applied to everything on one patient at once.
 ```gherkin
 Scenario: a row is not worth migrating
   Given patient P-0781 is beyond repair
-  When Vamshi rejects it, with a reason
+  When the user rejects it, with a reason
   Then its state is Import rejected
   And it is not offered for promotion (1.4)
 ```
@@ -758,13 +758,13 @@ to the data, so taking it back costs nothing and loses nothing.
 ```gherkin
 Scenario: a value no rule has an opinion about
   Given patient P-0310 has a city no rule caught
-  When Vamshi edits that field, writes a note saying why, and saves
+  When the user edits that field, writes a note saying why, and saves
   Then the column is written
   And the modification log records the change like any other (1.3)
   And the row's log shows it as changed by hand, with the note
 
 Scenario: no note, no edit
-  When Vamshi edits a field and writes no note
+  When the user edits a field and writes no note
   Then nothing can be saved
 ```
 
@@ -842,7 +842,7 @@ Scenario: a dismissed link
 ```gherkin
 Scenario: two patient rows are the same person
   Given P-450 is linked as a duplicate of P-100
-  When Vamshi confirms the link
+  When the user confirms the link
   Then the link is confirmed
   And P-450 is Import rejected, its reason naming P-100 and the rule
 ```

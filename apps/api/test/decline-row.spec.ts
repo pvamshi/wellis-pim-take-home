@@ -484,7 +484,7 @@ describe('declining one rule row', () => {
 
     // The reason is optional (1.2.7): a cross without one declines the row and
     // records nothing in its place. A reason of only whitespace is the same
-    // press — a row holding " " would read as feedback Vamshi typed — and the
+    // press — a row holding " " would read as feedback the user typed — and the
     // padding around a real one is not part of what he wrote. Exactly how
     // `RuleVersionsService` already normalises a version's reason (1.2.6), so a
     // row's reason cannot come to mean something different.
