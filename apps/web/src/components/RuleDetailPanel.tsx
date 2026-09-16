@@ -27,8 +27,10 @@ type RequestState =
  * confirmed, so the press decides the row the operator was looking at even if
  * the detail were re-read underneath the open dialog.
  */
-type DeclineTarget =
-  { kind: 'rule' } | { kind: 'row'; row: RuleDetailRow; address: RuleRowAddress };
+interface DeclineTarget {
+  readonly row: RuleDetailRow;
+  readonly address: RuleRowAddress;
+}
 
 export interface RuleDetailPanelProps {
   readonly ruleId: string;
@@ -59,12 +61,15 @@ function rowCount(n: number): string {
 function RuleGuidance({
   guidance,
   queued,
+  canDecline,
   busy,
   onRevise,
   onDecline,
 }: {
   readonly guidance: string | null;
   readonly queued: boolean;
+  /** False once the rule has no active version left to park. */
+  readonly canDecline: boolean;
   readonly busy: boolean;
   readonly onRevise: (guidance: string) => void;
   readonly onDecline: (reason: string) => void;
@@ -107,7 +112,7 @@ function RuleGuidance({
           size="xs"
           color="red"
           variant="light"
-          disabled={busy}
+          disabled={busy || !canDecline}
           onClick={() => onDecline(reason)}
         >
           Decline
@@ -115,7 +120,8 @@ function RuleGuidance({
       </Group>
       {queued && (
         <Text size="xs" c="dimmed">
-          Already waiting for a new version. Update replaces the guidance above.
+          Already waiting for a new version, so nothing of it is running. Update replaces the
+          guidance above.
         </Text>
       )}
     </Stack>
@@ -315,7 +321,7 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
     const address = addressOf(row);
     if (address === null) return;
 
-    setDeclining({ kind: 'row', row, address });
+    setDeclining({ row, address });
   }
 
   function onRuleApprove() {
@@ -325,10 +331,6 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
         ? `${detail.ruleName} has no active version, so nothing was approved.`
         : `Approved ${rowCount(report.approved)} of ${detail.ruleName} v${report.version}, updating ${rowCount(report.updated)} of legacy data.`;
     });
-  }
-
-  function onRuleDecline() {
-    setDeclining({ kind: 'rule' });
   }
 
   /**
@@ -347,7 +349,7 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
     });
   }
 
-  /** The rule-level cross on an ambiguous rule, inline beside the guidance rather than in the dialog. */
+  /** The rule-level cross, inline beside the guidance rather than in a dialog: the reason is all it asks for. */
   function onRuleDeclineWithReason(reason: string) {
     press(async () => {
       const report = await declineRule(ruleId, reason.trim() === '' ? undefined : reason);
@@ -380,16 +382,6 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
 
     setDeclining(null);
 
-    if (target.kind === 'rule') {
-      press(async () => {
-        const report = await declineRule(ruleId, reason);
-        return report.version === null
-          ? `${detail.ruleName} has no active version, so nothing was declined.`
-          : `Declined ${detail.ruleName} v${report.version}. It leaves the list until a new version is written.`;
-      });
-      return;
-    }
-
     const { address } = target;
 
     if (modifyRule) {
@@ -416,22 +408,12 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
 
       {detail.ambiguous && (
         <Alert color="yellow" title="This rule cannot propose a value">
-          <Stack gap="sm">
-            <Text size="sm">
-              It can tell that these rows are wrong but not what they should be — the description
-              above is the whole of what it found. Each row below takes the value it should hold, or
-              a reason to leave it as it is. If the rule itself is asking the wrong question, tell it
-              what it should do instead and it goes back to be rewritten.
-            </Text>
-            <RuleGuidance
-              key={`${detail.guidanceVersion ?? 'none'}:${detail.guidance ?? ''}`}
-              guidance={detail.guidance}
-              queued={detail.queuedForRevision}
-              busy={busy}
-              onRevise={onRuleRevise}
-              onDecline={onRuleDeclineWithReason}
-            />
-          </Stack>
+          <Text size="sm">
+            It can tell that these rows are wrong but not what they should be — the description
+            above is the whole of what it found. Each row below takes the value it should hold, or a
+            reason to leave it as it is. If the rule itself is asking the wrong question, tell it
+            below what it should do instead.
+          </Text>
         </Alert>
       )}
 
@@ -509,6 +491,27 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
         )}
       </Stack>
 
+      {/*
+        Guidance for the rule itself (1.5.1), on every rule and not only an
+        ambiguous one: a rule that proposes the wrong value needs telling as
+        much as one that proposes none. Keyed by what is stored, so a landed
+        press re-seeds the box from the re-read.
+      */}
+      <Stack gap="xs">
+        <Text fw={600} size="sm">
+          Tell this rule what to do instead
+        </Text>
+        <RuleGuidance
+          key={`${detail.guidanceVersion ?? 'none'}:${detail.guidance ?? ''}`}
+          guidance={detail.guidance}
+          queued={detail.queuedForRevision}
+          canDecline={version !== null}
+          busy={busy}
+          onRevise={onRuleRevise}
+          onDecline={onRuleDeclineWithReason}
+        />
+      </Stack>
+
       <Group>
         {/*
           Not drawn at all for an ambiguous rule. Ambiguity is rule-wide
@@ -527,20 +530,6 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
             Approve rule
           </Button>
         )}
-        {/*
-          The dialog's press. An ambiguous rule carries the same two presses
-          inline, up beside its guidance, so it does not carry this one too.
-        */}
-        {!detail.ambiguous && (
-          <Button
-            color="red"
-            variant="light"
-            onClick={onRuleDecline}
-            disabled={busy || version === null}
-          >
-            Decline rule
-          </Button>
-        )}
         {busy && <Loader size="sm" />}
       </Group>
 
@@ -552,16 +541,8 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
       */}
       {declining !== null && (
         <DeclineDialog
-          key={
-            declining.kind === 'rule'
-              ? 'rule'
-              : `${declining.address.table}:${declining.address.legacyId}:${declining.address.column}`
-          }
-          target={
-            declining.kind === 'rule'
-              ? { kind: 'rule', ruleName: detail.ruleName }
-              : { kind: 'row', ruleName: detail.ruleName, row: declining.row }
-          }
+          key={`${declining.address.table}:${declining.address.legacyId}:${declining.address.column}`}
+          target={{ kind: 'row', ruleName: detail.ruleName, row: declining.row }}
           onCancel={() => setDeclining(null)}
           onConfirm={runDecline}
         />
