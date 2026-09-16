@@ -70,6 +70,19 @@ export interface RuleDetail {
   readonly pending: RuleDetailRow[];
   /** Rows already approved and applied (1.2.2). Empty when there are none. */
   readonly approved: RuleDetailRow[];
+  /**
+   * What a human last told this rule to do differently (1.5.1), in their words,
+   * kept on the version they told it against. Null when nobody has.
+   *
+   * It is on the detail so the screen can show it back rather than an empty
+   * box: guidance is refined, not retyped, and a box that forgets what was
+   * already said invites the same sentence to be written twice.
+   */
+  readonly guidance: string | null;
+  /** The version that guidance is stored on. Null when there is none. */
+  readonly guidanceVersion: number | null;
+  /** True when that version is waiting for the revision workflow to rewrite it. */
+  readonly queuedForRevision: boolean;
 }
 
 /** The rule table of one legacy source, under the short name a row names. */
@@ -150,15 +163,24 @@ export class RuleDetailService {
       return null;
     }
 
-    const active = await this.dataSource
+    const versions = await this.dataSource
       .getRepository(RuleVersion)
-      .findOne({ where: { ruleId, status: 'active' } });
+      .find({ where: { ruleId }, order: { version: 'DESC' } });
+    const active = versions.find((version) => version.status === 'active') ?? null;
+
+    // The guidance to show back is the one still waiting to be acted on; with
+    // none waiting, the last thing anyone said about any version of this rule.
+    const queued = versions.find((version) => version.needsReview) ?? null;
+    const spoken = queued ?? versions.find((version) => version.reason !== null) ?? null;
 
     const detail = {
       ruleId: rule.ruleId,
       ruleName: rule.ruleName,
       description: rule.description,
       ambiguous: rule.ambiguous,
+      guidance: spoken === null ? null : spoken.reason,
+      guidanceVersion: spoken === null ? null : spoken.version,
+      queuedForRevision: queued !== null,
     };
 
     if (active === null) {

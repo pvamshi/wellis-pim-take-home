@@ -239,6 +239,9 @@ describe('the rule detail', () => {
         },
       ],
       approved: [],
+      guidance: null,
+      guidanceVersion: null,
+      queuedForRevision: false,
     });
   });
 
@@ -450,6 +453,10 @@ describe('the rule detail', () => {
       version: null,
       pending: [],
       approved: [],
+      // What it was told, shown back so it can be refined rather than retyped (1.5.1).
+      guidance: 'it matched Belgian numbers too',
+      guidanceVersion: 1,
+      queuedForRevision: true,
     });
   });
 

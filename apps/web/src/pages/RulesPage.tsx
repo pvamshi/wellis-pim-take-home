@@ -57,15 +57,27 @@ interface RuleSection {
   readonly rules: RuleListEntry[];
 }
 
-/** The rules with work waiting, then the rules whose changes are all applied (1.2.1). */
+/**
+ * The rules with work waiting, then the rules whose changes are all applied,
+ * then the rules waiting to be rewritten (1.2.1, 1.5.1).
+ */
 function sections(rules: RuleListEntry[]): RuleSection[] {
+  const queued = rules.filter((rule) => rule.queuedForRevision);
+  const live = rules.filter((rule) => !rule.queuedForRevision);
+
   return [
-    { key: 'work', heading: null, note: '', rules: rules.filter((rule) => rule.pending > 0) },
+    { key: 'work', heading: null, note: '', rules: live.filter((rule) => rule.pending > 0) },
     {
       key: 'applied',
       heading: 'Applied',
       note: 'Nothing left to decide. Open a rule to see every change it made.',
-      rules: rules.filter((rule) => rule.pending === 0),
+      rules: live.filter((rule) => rule.pending === 0),
+    },
+    {
+      key: 'revision',
+      heading: 'Sent for revision',
+      note: 'Parked until a new version is written. Open one to read or refine the guidance it was given.',
+      rules: queued,
     },
   ];
 }

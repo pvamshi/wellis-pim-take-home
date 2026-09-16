@@ -37,6 +37,13 @@ export interface RuleListEntry {
   readonly pending: number;
   /** Rows of this rule and version already approved and applied (1.2.2). */
   readonly approved: number;
+  /**
+   * True when this line is a version waiting for the revision workflow (1.5.1)
+   * rather than the rule's active one. Such a rule runs nothing until its next
+   * version is written, and it is listed so the guidance it was given can still
+   * be read and refined.
+   */
+  readonly queuedForRevision: boolean;
   /** Whether this rule proposes values or only reports what it cannot fix (1.1.12). */
   readonly ambiguous: boolean;
 }
@@ -123,21 +130,39 @@ export class RuleListService {
    * first, then the rules whose changes are all applied, most applied first.
    */
   async list(): Promise<RuleListEntry[]> {
-    const active = await this.dataSource
+    const listable = await this.dataSource
       .getRepository(RuleVersion)
       .createQueryBuilder('version')
       // The rule is joined rather than fetched afterwards because every line
       // needs its name, and the screen has only this call to read it with.
       .innerJoinAndSelect('version.rule', 'rule')
       .where('version.status = :status', { status: 'active' })
+      // A version waiting for the revision workflow (1.5.1) is listed too: it
+      // runs nothing, so it has no work, but the guidance it was given is read
+      // and refined on its line. A rule with both is shown by its active one.
+      .orWhere('version.needsReview = :needsReview', { needsReview: true })
+      .orderBy('version.version', 'DESC')
       .getMany();
 
     const counts = await this.countRows();
+    const shown = new Map<string, RuleVersion>();
 
-    const entries = active.flatMap((version): RuleListEntry[] => {
-      const count = counts.get(pendingKey(version.ruleId, version.version));
+    for (const version of listable) {
+      const chosen = shown.get(version.ruleId);
 
-      if (count === undefined || (count.pending === 0 && count.approved === 0)) {
+      if (chosen === undefined || (chosen.status !== 'active' && version.status === 'active')) {
+        shown.set(version.ruleId, version);
+      }
+    }
+
+    const entries = [...shown.values()].flatMap((version): RuleListEntry[] => {
+      const count = counts.get(pendingKey(version.ruleId, version.version)) ?? {
+        pending: 0,
+        approved: 0,
+      };
+      const queuedForRevision = version.status !== 'active';
+
+      if (!queuedForRevision && count.pending === 0 && count.approved === 0) {
         return [];
       }
 
@@ -149,14 +174,20 @@ export class RuleListService {
           pending: count.pending,
           approved: count.approved,
           ambiguous: version.rule.ambiguous,
+          queuedForRevision,
         },
       ];
     });
 
     // Most pending first (1.2.1), so a rule with nothing pending sorts after
-    // every rule with work; among those, most applied first.
+    // every rule with work; among those, most applied first. A version waiting
+    // to be rewritten sorts behind all of them: it runs nothing, so its counts
+    // are not work anyone can do from this screen.
     return entries.sort(
-      (left, right) => right.pending - left.pending || right.approved - left.approved,
+      (left, right) =>
+        Number(left.queuedForRevision) - Number(right.queuedForRevision) ||
+        right.pending - left.pending ||
+        right.approved - left.approved,
     );
   }
 

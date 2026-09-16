@@ -147,6 +147,52 @@ export class RuleVersionsService {
    * and the operator is one of us pressing from a screen that may be a moment
    * stale (1.2.12).
    */
+  /**
+   * Sends the rule back to be rewritten, with the guidance a human wrote
+   * (1.5.1): what this rule should do differently, in their words.
+   *
+   * It writes the three fields a decline writes, because they are the queue:
+   * the revision workflow reads `needsReview`, and what it reads for the why is
+   * `reason`. What differs is what the press means — "here is how to decide it"
+   * rather than "this is wrong" — and that a rule already waiting can be told
+   * more. With no active version left to park, the guidance is written onto the
+   * version already queued, so refining it is editing one sentence rather than
+   * declining a rule that is already declined.
+   *
+   * A rule with no active version and nothing queued reports `version: null`
+   * and writes nothing, the same answer `decline` gives for that state.
+   */
+  async sendForRevision(ruleId: string, guidance: string): Promise<RuleDeclineReport> {
+    const stored = storedReason(guidance);
+
+    return await this.dataSource.transaction(async (manager: EntityManager) => {
+      const repository = manager.getRepository(RuleVersion);
+      const active = await repository.findOne({ where: { ruleId, status: 'active' } });
+
+      if (active !== null) {
+        await repository.update(
+          { ruleId, version: active.version },
+          { status: 'inactive', needsReview: true, reason: stored },
+        );
+
+        return { ruleId, version: active.version, reason: stored };
+      }
+
+      const queued = await repository.findOne({
+        where: { ruleId, needsReview: true },
+        order: { version: 'DESC' },
+      });
+
+      if (queued === null) {
+        return { ruleId, version: null, reason: null };
+      }
+
+      await repository.update({ ruleId, version: queued.version }, { reason: stored });
+
+      return { ruleId, version: queued.version, reason: stored };
+    });
+  }
+
   async decline(ruleId: string, reason?: string | null): Promise<RuleDeclineReport> {
     const stored = storedReason(reason);
 

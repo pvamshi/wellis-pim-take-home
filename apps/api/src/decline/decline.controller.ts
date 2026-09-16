@@ -170,6 +170,28 @@ function readReason(body: unknown): string | null {
 }
 
 /**
+ * Reads the guidance a revision is asked for, or says what is wrong with it.
+ *
+ * Required, and never blank, unlike the reason above: a decline stands on its
+ * own, while this press exists to carry a sentence for the revision workflow to
+ * rewrite from, and an empty one would queue a revision with nothing in it.
+ * Padding is trimmed, so a box holding a space is an empty box.
+ */
+function readGuidance(body: unknown): string {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequestException('a body of { guidance } is required');
+  }
+
+  const { guidance } = body as Record<string, unknown>;
+
+  if (typeof guidance !== 'string' || guidance.trim().length === 0) {
+    throw new BadRequestException('guidance is required: say what the rule should do instead');
+  }
+
+  return guidance.trim();
+}
+
+/**
  * Reads a row address out of a request body, or says what is wrong with it.
  *
  * By hand, for the reason `readReason` above gives: `tech-stack.md` names no
@@ -328,6 +350,30 @@ export class DeclineController {
    * active version parks nothing and reports `version: null`, the same line
    * every other press draws for a screen that is a moment stale (1.2.12).
    */
+  /**
+   * Sends the rule back to be rewritten, with guidance (1.5.1): what it should
+   * do differently, in the operator's words. The rule's active version goes
+   * inactive with `needsReview` true and the guidance stored against it — the
+   * queue the revision workflow reads — and no rule row is touched.
+   *
+   * Guidance is required and may not be blank, unlike the reason on a decline.
+   * A decline can stand on its own ("this rule is wrong"); this press exists to
+   * carry a sentence, and an empty one would queue a revision with nothing to
+   * revise from.
+   *
+   * A rule already waiting for a revision takes the guidance onto the version
+   * already queued, so a second press refines what was said rather than being a
+   * press with nothing to act on.
+   */
+  @Post(':ruleId/revise')
+  @HttpCode(HttpStatus.OK)
+  async reviseRule(
+    @Param('ruleId') ruleId: string,
+    @Body() body: unknown,
+  ): Promise<DeclineResponse> {
+    return await this.versions.sendForRevision(ruleId, readGuidance(body));
+  }
+
   @Post(':ruleId/rows/revise')
   @HttpCode(HttpStatus.OK)
   async reviseFromRow(

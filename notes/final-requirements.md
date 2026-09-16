@@ -316,6 +316,10 @@ sort by how many rows each caught, most first; the applied ones follow, most
 applied first. Without them, a rule whose work is finished would leave no trace
 on the screen of what it changed.
 
+A version waiting for a revision (1.5.1) is listed after both, under Sent for
+revision, whatever its counts: it runs nothing until its next version is
+written, and its guidance is read and refined on that line.
+
 ### 1.2.2 A rule can show two sections
 
 ```gherkin
@@ -526,6 +530,31 @@ Scenario: the revision workflow runs
 
 `needsReview` is the queue. Nothing else drives it, and nothing triggers it
 automatically — no schedule, no trigger on write.
+
+Guidance is how a version enters that queue, and it is given on the rule itself.
+
+```gherkin
+Scenario: telling a rule what to do instead
+  Given P47 proposes kg for every weight whose unit is empty
+  When Vamshi writes "an empty unit is not always kilograms — decide it by the weight" and presses Update
+  Then P47's active version is parked with that guidance stored on it
+  And no row of P47 is decided
+  And the revision workflow reads the guidance as what to rewrite from
+
+Scenario: guidance is refined, not retyped
+  Given P47 is already waiting for a revision, with guidance on it
+  When the rule is opened again
+  Then the box holds what was written last time
+  And pressing Update replaces it on the version already waiting
+```
+
+An ambiguous rule shows exactly two boxes on its own line: the guidance, with
+**Update**, and a reason, with **Decline**. Declining writes the same three
+fields — the version is parked either way — and means the other thing: this rule
+is wrong, with no instruction for what should replace it.
+
+A version waiting for a revision stays on the rules screen, under **Sent for
+revision**, because that is where its guidance is read and refined.
 
 ### 1.5.2 A revision may split into two rules
 

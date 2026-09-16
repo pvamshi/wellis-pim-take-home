@@ -188,6 +188,7 @@ describe('the rules list', () => {
         pending: 340,
         approved: 0,
         ambiguous: false,
+        queuedForRevision: false,
       },
     ]);
   });
@@ -211,6 +212,7 @@ describe('the rules list', () => {
         pending: 3,
         approved: 0,
         ambiguous: true,
+        queuedForRevision: false,
       },
     ]);
   });
@@ -234,7 +236,7 @@ describe('the rules list', () => {
     ]);
   });
 
-  it('leaves out a rule with pending rows whose version is not active', async () => {
+  it('leaves out a version never activated, and lists a parked one last, waiting to be rewritten', async () => {
     await seedRule('R-UNRELEASED', [1]);
     await seedRule('R-PARKED', [1], 1);
     await seedRule('R-LIVE', [1], 1);
@@ -242,12 +244,19 @@ describe('the rules list', () => {
     await seedFindings(patientRules, findings('R-PARKED', 7));
     await seedFindings(patientRules, findings('R-LIVE', 2));
 
-    // Declining leaves the rule's rows exactly as they were (1.2.6): what takes
-    // the rule off the screen is the version going inactive, which is the only
-    // thing the screen filters on (1.2.1).
+    // Declining leaves the rule's rows exactly as they were (1.2.6) and parks
+    // the version, which stops it running.
     await ruleVersions.decline('R-PARKED', 'it matched Belgian numbers too');
 
-    expect(await listedRules()).toEqual([['R-LIVE', 2]]);
+    const { body } = await loadRules();
+
+    // A version nobody activated is not on the screen at all. A parked one is:
+    // its guidance is read and refined there (1.5.1). It sorts behind every
+    // rule with work, whatever its own count, because nothing here can move it.
+    expect(body.map((entry) => [entry.ruleId, entry.pending, entry.queuedForRevision])).toEqual([
+      ['R-LIVE', 2, false],
+      ['R-PARKED', 7, true],
+    ]);
   });
 
   it('leaves out a rule whose pending rows all belong to a superseded version', async () => {

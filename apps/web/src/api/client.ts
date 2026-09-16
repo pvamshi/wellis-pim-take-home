@@ -346,6 +346,24 @@ function reasonField(reason?: string): { reason: string } | undefined {
  * With no reason there is no body at all, which the backend reads as 1.2.6's
  * second scenario — declined, with nothing recorded in place of a reason.
  */
+/**
+ * Guidance for the rule itself (1.5.1): what it should do differently, in the
+ * operator's words.
+ *
+ * The rule's active version is parked with the guidance stored against it —
+ * the queue the revision workflow reads — and no row is decided. A rule
+ * already waiting takes the new wording onto the version already queued, which
+ * is what makes the box on screen a sentence to refine rather than one to
+ * retype. Blank is refused by the backend: this press exists to carry a
+ * sentence.
+ */
+export async function reviseRule(ruleId: string, guidance: string): Promise<RuleDeclineReport> {
+  return await requestJson<RuleDeclineReport>(ruleUrl(ruleId, '/revise'), {
+    method: 'POST',
+    body: { guidance },
+  });
+}
+
 export async function declineRule(ruleId: string, reason?: string): Promise<RuleDeclineReport> {
   return await requestJson<RuleDeclineReport>(ruleUrl(ruleId, '/decline'), {
     method: 'POST',

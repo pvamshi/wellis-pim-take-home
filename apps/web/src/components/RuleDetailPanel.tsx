@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Code, Group, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Badge, Button, Code, Group, Loader, Stack, Text, TextInput } from '@mantine/core';
 import {
   ApiError,
   approveRow,
@@ -8,6 +8,7 @@ import {
   declineRule,
   getRuleDetail,
   reviseFromRow,
+  reviseRule,
   ruleUrl,
 } from '../api/client';
 import type { RuleDetailResponse, RuleDetailRow, RuleRowAddress } from '../api/types';
@@ -44,6 +45,81 @@ export interface RuleDetailPanelProps {
 /** How many rows, in words that read the same for one as for many. */
 function rowCount(n: number): string {
   return n === 1 ? '1 row' : `${n} rows`;
+}
+
+/**
+ * The two presses on an ambiguous rule's own line (1.5.1): guidance for what it
+ * should do instead, and a reason to park it as simply wrong.
+ *
+ * The guidance box opens holding what this rule was last told, so refining it
+ * is editing a sentence rather than remembering one. Local state, and keyed by
+ * the caller on the stored guidance, so a landed press re-seeds the box from
+ * the re-read instead of leaving the old text sitting in it.
+ */
+function RuleGuidance({
+  guidance,
+  queued,
+  busy,
+  onRevise,
+  onDecline,
+}: {
+  readonly guidance: string | null;
+  readonly queued: boolean;
+  readonly busy: boolean;
+  readonly onRevise: (guidance: string) => void;
+  readonly onDecline: (reason: string) => void;
+}) {
+  const [text, setText] = useState(guidance ?? '');
+  const [reason, setReason] = useState('');
+
+  return (
+    <Stack gap={6}>
+      <Group gap={6} wrap="nowrap" align="flex-start">
+        <TextInput
+          size="xs"
+          style={{ flex: 1 }}
+          value={text}
+          placeholder="What should this rule do instead?"
+          aria-label="Guidance for this rule"
+          disabled={busy}
+          onChange={(event) => setText(event.currentTarget.value)}
+        />
+        <Button
+          size="xs"
+          color="green"
+          disabled={busy || text.trim() === ''}
+          onClick={() => onRevise(text.trim())}
+        >
+          Update
+        </Button>
+      </Group>
+      <Group gap={6} wrap="nowrap" align="flex-start">
+        <TextInput
+          size="xs"
+          style={{ flex: 1 }}
+          value={reason}
+          placeholder="Why this rule is wrong (optional)"
+          aria-label="Reason for declining this rule"
+          disabled={busy}
+          onChange={(event) => setReason(event.currentTarget.value)}
+        />
+        <Button
+          size="xs"
+          color="red"
+          variant="light"
+          disabled={busy}
+          onClick={() => onDecline(reason)}
+        >
+          Decline
+        </Button>
+      </Group>
+      {queued && (
+        <Text size="xs" c="dimmed">
+          Already waiting for a new version. Update replaces the guidance above.
+        </Text>
+      )}
+    </Stack>
+  );
 }
 
 /**
@@ -256,6 +332,32 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
   }
 
   /**
+   * Guidance for the rule itself (1.5.1): what it should do instead.
+   *
+   * It parks the rule's active version with that sentence stored on it, which
+   * is the queue the revision workflow reads, and decides no row. A rule
+   * already waiting takes the new wording onto the version already queued.
+   */
+  function onRuleRevise(guidance: string) {
+    press(async () => {
+      const report = await reviseRule(ruleId, guidance);
+      return report.version === null
+        ? `${detail.ruleName} has no version to send, so the guidance was not stored.`
+        : `Sent ${detail.ruleName} v${report.version} to be rewritten, with your guidance. Its rows are untouched.`;
+    });
+  }
+
+  /** The rule-level cross on an ambiguous rule, inline beside the guidance rather than in the dialog. */
+  function onRuleDeclineWithReason(reason: string) {
+    press(async () => {
+      const report = await declineRule(ruleId, reason.trim() === '' ? undefined : reason);
+      return report.version === null
+        ? `${detail.ruleName} has no active version, so nothing was declined.`
+        : `Declined ${detail.ruleName} v${report.version}. It leaves the list until a new version is written.`;
+    });
+  }
+
+  /**
    * The press the dialog was opened for, with what the operator answered.
    *
    * The tick is what chooses between the two row routes and is never sent as a
@@ -314,13 +416,22 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
 
       {detail.ambiguous && (
         <Alert color="yellow" title="This rule cannot propose a value">
-          <Text size="sm">
-            It can tell that these rows are wrong but not what they should be — the description
-            above is the whole of what it found. So there is nothing to tick: type what the column
-            should hold and press Update, or decline the row to leave it as it is and never be asked
-            again. If the rule is asking the wrong question altogether, send it for revision
-            instead.
-          </Text>
+          <Stack gap="sm">
+            <Text size="sm">
+              It can tell that these rows are wrong but not what they should be — the description
+              above is the whole of what it found. Each row below takes the value it should hold, or
+              a reason to leave it as it is. If the rule itself is asking the wrong question, tell it
+              what it should do instead and it goes back to be rewritten.
+            </Text>
+            <RuleGuidance
+              key={`${detail.guidanceVersion ?? 'none'}:${detail.guidance ?? ''}`}
+              guidance={detail.guidance}
+              queued={detail.queuedForRevision}
+              busy={busy}
+              onRevise={onRuleRevise}
+              onDecline={onRuleDeclineWithReason}
+            />
+          </Stack>
         </Alert>
       )}
 
@@ -416,14 +527,20 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
             Approve rule
           </Button>
         )}
-        <Button
-          color="red"
-          variant="light"
-          onClick={onRuleDecline}
-          disabled={busy || version === null}
-        >
-          Decline rule
-        </Button>
+        {/*
+          The dialog's press. An ambiguous rule carries the same two presses
+          inline, up beside its guidance, so it does not carry this one too.
+        */}
+        {!detail.ambiguous && (
+          <Button
+            color="red"
+            variant="light"
+            onClick={onRuleDecline}
+            disabled={busy || version === null}
+          >
+            Decline rule
+          </Button>
+        )}
         {busy && <Loader size="sm" />}
       </Group>
 

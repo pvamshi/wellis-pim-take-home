@@ -30,6 +30,8 @@ export interface RuleListEntry {
   readonly pending: number;
   /** Rows of this rule and version already approved and applied (1.2.2). */
   readonly approved: number;
+  /** True when this version is waiting for the revision workflow (1.5.1) rather than being the active one. */
+  readonly queuedForRevision: boolean;
   /**
    * Whether this rule proposes values or only reports what it cannot fix
    * (1.1.12). On the list so a line can say so before it is opened: an
@@ -105,6 +107,12 @@ export interface RuleDetailResponse {
   readonly pending: RuleDetailRow[];
   /** Rows already approved and applied (1.2.2). */
   readonly approved: RuleDetailRow[];
+  /** What a human last told this rule to do differently (1.5.1). Null when nobody has. */
+  readonly guidance: string | null;
+  /** The version that guidance is stored on. */
+  readonly guidanceVersion: number | null;
+  /** True when that version is waiting for the revision workflow to rewrite it. */
+  readonly queuedForRevision: boolean;
 }
 
 /**
