@@ -294,41 +294,87 @@ Recording, confirming, dismissing, merging and retiring X: 1.7.
 
 ```gherkin
 Scenario: a rule with pending findings
-  Given rule R7's active version has 340 rows in pending
+  Given rule R7 has 340 rows in pending
   When the rules screen loads
   Then R7 appears with its 340 rows
 
 Scenario: a rule with nothing pending and nothing applied
-  Given rule R9's active version has no rows in pending and none approved
+  Given rule R9 has no rows in pending and none approved
+  And no version of R9 is waiting to be rewritten
   When the rules screen loads
   Then R9 does not appear
 
 Scenario: a rule whose changes are all applied
-  Given rule R12's active version has no rows in pending and 1426 approved
+  Given rule R12 has no rows in pending and 1426 approved
   When the rules screen loads
   Then R12 appears under Applied, after every rule with work
   And expanding it lists the changes it made (1.2.2)
+
+Scenario: a rule whose rows were made by a version it has moved on from
+  Given rule P47 has 18 rows in pending, made by a version since superseded
+  And P47's newest version has found nothing
+  When the rules screen loads
+  Then P47 appears with its 18 rows
 ```
 
-The screen joins `rule`, `rule_version` and the per-table rule table, filtering
-to active versions with at least one pending or approved row. Rules with work
-sort by how many rows each caught, most first; the applied ones follow, most
-applied first. Without them, a rule whose work is finished would leave no trace
-on the screen of what it changed.
+A line counts all of a rule's rows, whatever version made them, because that is
+what expanding it shows (1.2.2). A rule's rows outlive the version that made
+them: parking a version leaves its rows where they are (1.2.6), and activating a
+new one supersedes the old without moving them. Counting one version therefore
+printed a number that disagreed with the screen underneath it, in both
+directions — a count with no rows under it, and rows under no count.
+
+The line still names a single version: the active one, or the one waiting to be
+rewritten when no version is active, or the highest written when there is
+neither. That says which version the rule is now. It is not where the counts
+came from.
+
+Rules with work sort by how many rows each caught, most first; the applied ones
+follow, most applied first. Without them, a rule whose work is finished would
+leave no trace on the screen of what it changed.
 
 A version waiting for a revision (1.5.1) is listed after both, under Sent for
 revision, whatever its counts: it runs nothing until its next version is
 written, and its guidance is read and refined on that line.
 
-### 1.2.2 A rule can show two sections
+The whole-rule Approve is not the count. It applies the pending rows of the
+active version alone (1.2.4), so where a rule's rows span versions it clears
+fewer than the line says; the expanded rule names the version that button acts
+on, and the rest are decided a row at a time.
+
+### 1.2.2 A rule shows its rows by version, two sections each
 
 ```gherkin
 Scenario: a rule with both pending and approved rows
-  Given rule R7 has 12 pending rows and 328 approved rows
+  Given rule R7 has 12 pending rows and 328 approved rows, all made by its active version
   When R7 is expanded
-  Then a pending section lists the 12 rows awaiting a decision
+  Then one block is shown, for that version
+  And a pending section lists the 12 rows awaiting a decision
   And an approved section lists the 328 already applied
+
+Scenario: a rule whose rows were made by two versions
+  Given rule R7's active v2 has 3 pending rows
+  And the v1 it superseded left 5 pending rows
+  When R7 is expanded
+  Then a v2 block lists its 3 pending rows
+  And a v1 block lists its 5 pending rows
+  And the newest version is shown first
+
+Scenario: a rule parked for a rewrite
+  Given rule I34's only version is waiting to be rewritten, with 290 pending rows
+  When I34 is expanded
+  Then that version's block lists all 290
+  And no whole-rule Approve is offered
 ```
+
+Each block says which version made its rows and what that version is now:
+active, sent for revision, or superseded. A version that found nothing is no
+block at all.
+
+Every row keeps its tick and its cross wherever it sits. A finding is addressed
+by rule, version, row and column, so a row left behind by a parked or superseded
+version can still be decided — the same rows the rows screen (1.6.3) already
+decides.
 
 ### 1.2.3 Expanding a rule shows before and after
 

@@ -11,7 +11,13 @@ import {
   reviseRule,
   ruleUrl,
 } from '../api/client';
-import type { RuleDetailResponse, RuleDetailRow, RuleRowAddress } from '../api/types';
+import type {
+  RuleDetailResponse,
+  RuleDetailRow,
+  RuleDetailVersionGroup,
+  RuleRowAddress,
+  RuleVersionState,
+} from '../api/types';
 import { DeclineDialog, type DeclineDecision } from './DeclineDialog';
 import { RuleRowsTable } from './RuleRowsTable';
 
@@ -48,6 +54,32 @@ export interface RuleDetailPanelProps {
 function rowCount(n: number): string {
   return n === 1 ? '1 row' : `${n} rows`;
 }
+
+/**
+ * What each version state is called on the screen, and why its rows are here.
+ *
+ * Every block is labelled, the active one included: a rule whose rows are all
+ * on one version should read the same as one whose rows are spread over three,
+ * and a heading that appeared only in the awkward case would make the awkward
+ * case look like a fault.
+ */
+const versionStates: Record<RuleVersionState, { label: string; color: string; note: string }> = {
+  active: {
+    label: 'Active',
+    color: 'blue',
+    note: 'The version this rule runs as now.',
+  },
+  needsReview: {
+    label: 'Sent for revision',
+    color: 'yellow',
+    note: 'Parked until a new version is written. It runs nothing, but the rows it already found are still here to decide.',
+  },
+  superseded: {
+    label: 'Superseded',
+    color: 'gray',
+    note: 'A version the rule has moved on from. Its rows were never decided, and each can still be ticked or crossed.',
+  },
+};
 
 /**
  * The two presses on an ambiguous rule's own line (1.5.1): guidance for what it
@@ -129,9 +161,9 @@ function RuleGuidance({
 }
 
 /**
- * One expanded rule (1.2.2): its two sections, before and after per row
- * (1.2.3), a tick and a cross on every pending row and Approve and Decline on
- * the rule (1.2.4, 1.2.7).
+ * One expanded rule (1.2.2): its rows under the version that made each, two
+ * sections in every block, before and after per row (1.2.3), a tick and a cross
+ * on every pending row and Approve and Decline on the rule (1.2.4, 1.2.7).
  *
  * Five things the code does not say on its own:
  *
@@ -142,13 +174,16 @@ function RuleGuidance({
  *   panel re-reads its own detail and tells the page to re-read the list. A
  *   press's report body is used for the outcome line and for nothing else — it
  *   says what the press did, not what the rule now is.
- * - **A press names the detail's version, not the list's.** Both sections were
- *   read from the active version, so that is the version whose rows are on the
- *   screen and the only one a press on them can mean.
- * - **A rule with no active version can still be looked at.** It is a rule
- *   parked by a decline (1.2.6): both sections come back empty and there is
- *   nothing to press, which the note below says rather than leaving an empty
- *   panel to be read as a failure.
+ * - **A press names the version that made the row.** The rows arrive grouped by
+ *   version (1.2.2), and a tick or a cross is addressed with the version of the
+ *   block it was pressed in — which is what lets a row left behind by a parked
+ *   or superseded version still be decided here, exactly as the rows screen
+ *   already lets it be decided there.
+ * - **A rule with no active version can still be looked at, and still has
+ *   rows.** It is a rule parked by a decline (1.2.6): its findings sit on the
+ *   version that made them and are listed under it, but there is no rule-level
+ *   press to make, which the note below says rather than leaving a disabled
+ *   button to be read as a failure.
  * - **A failed press changes nothing on the screen.** The error is shown and
  *   the row stays exactly where it was, because the panel never moves a row on
  *   its own — only a re-read does.
@@ -248,20 +283,24 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
   }
 
   const { detail } = state;
+  // The active version: what the rule-level press acts on, and the only thing
+  // on this screen that needs one. A row's own version is its group's.
   const { version } = detail;
+  // What that press would actually clear. On a rule whose rows are spread over
+  // versions this is fewer than the count on the closed line, which counts every
+  // version (1.2.1) — so the button says the number rather than implying it.
+  const activePending =
+    detail.versions.find((group) => group.version === version)?.pending.length ?? 0;
 
-  // The address of one row: what the screen holds, plus the version both
-  // sections were read from. Null when there is no active version, in which
-  // case there are no rows to press on either.
-  function addressOf(row: RuleDetailRow): RuleRowAddress | null {
-    return version === null
-      ? null
-      : { table: row.table, legacyId: row.legacyId, version, column: row.column };
+  // The address of one row: what the screen holds, plus the version of the
+  // block it was drawn in. Never null — every row here was made by some
+  // version, and a press names that one whether or not it is still active.
+  function addressOf(group: RuleDetailVersionGroup, row: RuleDetailRow): RuleRowAddress {
+    return { table: row.table, legacyId: row.legacyId, version: group.version, column: row.column };
   }
 
-  function onRowApprove(row: RuleDetailRow) {
-    const address = addressOf(row);
-    if (address === null) return;
+  function onRowApprove(group: RuleDetailVersionGroup, row: RuleDetailRow) {
+    const address = addressOf(group, row);
 
     press(async () => {
       const report = await approveRow(ruleId, address);
@@ -280,9 +319,8 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
    * Blank is a real answer — it says the column should hold nothing — so it is
    * sent like any other.
    */
-  function onRowApproveWithValue(row: RuleDetailRow, value: string) {
-    const address = addressOf(row);
-    if (address === null) return;
+  function onRowApproveWithValue(group: RuleDetailVersionGroup, row: RuleDetailRow, value: string) {
+    const address = addressOf(group, row);
 
     press(async () => {
       const report = await approveRow(ruleId, address, { value });
@@ -302,9 +340,12 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
    * is wrong" still opens the dialog — so all that is left is the reason, and a
    * box on the row is a shorter way to type one than a dialog.
    */
-  function onRowDeclineWithReason(row: RuleDetailRow, reason: string) {
-    const address = addressOf(row);
-    if (address === null) return;
+  function onRowDeclineWithReason(
+    group: RuleDetailVersionGroup,
+    row: RuleDetailRow,
+    reason: string,
+  ) {
+    const address = addressOf(group, row);
 
     press(async () => {
       const report = await declineRow(ruleId, address, reason);
@@ -317,11 +358,8 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
   // Neither cross posts anything. Both open the dialog, which is where the
   // reason is typed and — for a row — where the two opposite outcomes of the
   // "modify the rule" tick are chosen between (1.2.6, 1.2.7, 1.2.8).
-  function onRowDecline(row: RuleDetailRow) {
-    const address = addressOf(row);
-    if (address === null) return;
-
-    setDeclining({ row, address });
+  function onRowDecline(group: RuleDetailVersionGroup, row: RuleDetailRow) {
+    setDeclining({ row, address: addressOf(group, row) });
   }
 
   function onRuleApprove() {
@@ -420,8 +458,9 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
       {version === null && (
         <Alert color="yellow" title="No active version">
           <Text size="sm">
-            This rule has no active version, so it has no rows awaiting a decision and nothing to
-            approve or decline. It is waiting for a new version to be written.
+            This rule is waiting for a new version to be written, so nothing of it is running and
+            there is no whole-rule Approve to press. Whatever it already found is listed below under
+            the version that found it, and every one of those rows can still be decided on its own.
           </Text>
         </Alert>
       )}
@@ -441,55 +480,92 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
         </Alert>
       )}
 
-      <Stack gap="xs">
-        <Group gap="xs">
-          <Text fw={600}>Pending</Text>
-          <Badge variant="light">{detail.pending.length}</Badge>
-        </Group>
-        {detail.pending.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            No rows are awaiting a decision.
-          </Text>
-        ) : (
-          <RuleRowsTable
-            rows={detail.pending}
-            ambiguous={detail.ambiguous}
-            description={detail.description}
-            actions={{
-              onApprove: onRowApprove,
-              onDecline: onRowDecline,
-              onApproveWithValue: onRowApproveWithValue,
-              onDeclineWithReason: onRowDeclineWithReason,
-              busy,
-            }}
-          />
-        )}
-      </Stack>
+      {/*
+        One block per version that found anything, newest first (1.2.2). A rule's
+        rows outlive the version that made them — parking one leaves its rows
+        where they are (1.2.6) — so a rule can have rows under two or three
+        headings, and every row is reachable wherever it sits.
+      */}
+      {detail.versions.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          This rule has found nothing. No rows are awaiting a decision, and none has been applied.
+        </Text>
+      ) : (
+        detail.versions.map((group) => (
+          <Stack key={group.version} gap="md">
+            <Group gap="xs" wrap="nowrap" align="baseline">
+              <Text fw={600}>v{group.version}</Text>
+              <Badge variant="light" color={versionStates[group.state].color}>
+                {versionStates[group.state].label}
+              </Badge>
+              <Text size="xs" c="dimmed">
+                {versionStates[group.state].note}
+              </Text>
+            </Group>
 
-      <Stack gap="xs">
-        <Group gap="xs">
-          <Text fw={600}>Approved</Text>
-          <Badge variant="light" color="green">
-            {detail.approved.length}
-          </Badge>
-        </Group>
-        {detail.approved.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            Nothing has been approved yet.
-          </Text>
-        ) : (
-          /*
-            No tick and no cross here. An approved row is settled: there is no
-            undo (1.2.11, deferred.md D2), and the presses move only rows that
-            are still pending.
-          */
-          <RuleRowsTable
-            rows={detail.approved}
-            ambiguous={detail.ambiguous}
-            description={detail.description}
-          />
-        )}
-      </Stack>
+            <Stack gap="xs">
+              <Group gap="xs">
+                <Text fw={600} size="sm">
+                  Pending
+                </Text>
+                <Badge variant="light">{group.pending.length}</Badge>
+              </Group>
+              {group.pending.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  No rows of this version are awaiting a decision.
+                </Text>
+              ) : (
+                /*
+                  Every press is handed the group, which is where the version
+                  half of a row's address comes from (1.2.4, 1.2.7). The tick,
+                  the cross and the ambiguous value box are otherwise exactly
+                  what they were.
+                */
+                <RuleRowsTable
+                  rows={group.pending}
+                  ambiguous={detail.ambiguous}
+                  description={detail.description}
+                  actions={{
+                    onApprove: (row) => onRowApprove(group, row),
+                    onDecline: (row) => onRowDecline(group, row),
+                    onApproveWithValue: (row, value) => onRowApproveWithValue(group, row, value),
+                    onDeclineWithReason: (row, reason) =>
+                      onRowDeclineWithReason(group, row, reason),
+                    busy,
+                  }}
+                />
+              )}
+            </Stack>
+
+            <Stack gap="xs">
+              <Group gap="xs">
+                <Text fw={600} size="sm">
+                  Approved
+                </Text>
+                <Badge variant="light" color="green">
+                  {group.approved.length}
+                </Badge>
+              </Group>
+              {group.approved.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  Nothing of this version has been approved.
+                </Text>
+              ) : (
+                /*
+                  No tick and no cross here. An approved row is settled: there is
+                  no undo (1.2.11, deferred.md D2), and the presses move only
+                  rows that are still pending.
+                */
+                <RuleRowsTable
+                  rows={group.approved}
+                  ambiguous={detail.ambiguous}
+                  description={detail.description}
+                />
+              )}
+            </Stack>
+          </Stack>
+        ))
+      )}
 
       {/*
         Guidance for the rule itself (1.5.1), on every rule and not only an
@@ -521,14 +597,17 @@ export function RuleDetailPanel({ ruleId, onChanged }: RuleDetailPanelProps) {
           would be the wrong shape: there is no state of an ambiguous rule in
           which it becomes pressable, so it does not belong on the screen.
         */}
-        {!detail.ambiguous && (
-          <Button
-            color="green"
-            onClick={onRuleApprove}
-            disabled={busy || version === null || detail.pending.length === 0}
-          >
-            Approve rule
-          </Button>
+        {!detail.ambiguous && version !== null && (
+          <>
+            <Button color="green" onClick={onRuleApprove} disabled={busy || activePending === 0}>
+              Approve rule (v{version})
+            </Button>
+            <Text size="xs" c="dimmed">
+              {activePending === 0
+                ? `Nothing is pending on v${version}.`
+                : `Applies the ${rowCount(activePending)} pending on v${version}. Rows of any other version are decided one at a time.`}
+            </Text>
+          </>
         )}
         {busy && <Loader size="sm" />}
       </Group>

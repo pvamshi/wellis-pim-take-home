@@ -58,9 +58,10 @@ export type LegacySourceTable = 'patient' | 'intake' | 'consent';
  * disagree this file is the bug.
  *
  * `ruleId` and `version` are deliberately not here. They are the same on every
- * row of one detail, so they sit on the detail once — and a row action takes
- * the rule id and the version from there, which is what makes
- * `(table, legacyId, column)` plus the detail a complete row address.
+ * row of a group — the rule id for the whole detail, the version for the group
+ * — so they sit there once, and a row action takes the rule id from the detail
+ * and the version from the group it was drawn in, which is what makes
+ * `(table, legacyId, column)` plus the two a complete row address.
  */
 export interface RuleDetailRow {
   readonly table: LegacySourceTable;
@@ -83,12 +84,40 @@ export interface RuleDetailRow {
 }
 
 /**
- * One expanded rule: what it is, and its two sections (1.2.2).
+ * What one version of a rule is now (1.1.8, 1.5.1).
+ *
+ * A restatement of the backend's `RuleVersionState`. `superseded` covers every
+ * version that is neither active nor waiting to be rewritten, one never
+ * activated included.
+ */
+export type RuleVersionState = 'active' | 'needsReview' | 'superseded';
+
+/**
+ * One version's findings (1.2.2): which version made them, what that version is
+ * now, and the same two sections inside it.
+ *
+ * A restatement of the backend's `RuleDetailVersionGroup`. A rule's rows
+ * outlive the version that made them — parking a version leaves its rows where
+ * they are (1.2.6) — so the screen shows one block per version that left any,
+ * and a press inside a block is addressed with that block's version.
+ */
+export interface RuleDetailVersionGroup {
+  readonly version: number;
+  readonly state: RuleVersionState;
+  /** Rows of this version still awaiting a decision (1.2.2). */
+  readonly pending: RuleDetailRow[];
+  /** Rows of this version already approved and applied (1.2.2). */
+  readonly approved: RuleDetailRow[];
+}
+
+/**
+ * One expanded rule: what it is, and its findings by version (1.2.2).
  *
  * `description` and `ambiguous` are what 1.2.3's second sentence needs — an
  * ambiguous rule's rows show the previous value and the rule's description in
  * place of a new value. They are on the detail rather than on each row because
- * ambiguity is a property of the rule, never of the row (1.1.12).
+ * ambiguity is a property of the rule, never of the row (1.1.12), and true of
+ * every version of it besides.
  */
 export interface RuleDetailResponse {
   readonly ruleId: string;
@@ -98,15 +127,14 @@ export interface RuleDetailResponse {
   /** True when this rule finds problems it cannot fix (1.1.12). */
   readonly ambiguous: boolean;
   /**
-   * The active version, and so the version both sections belong to (1.1.8).
-   * Null when the rule has no active version — declined and not yet revised
-   * (1.2.6), in which case both sections are empty.
+   * The active version (1.1.8), and so the only version the rule-level Approve
+   * acts on. Null when the rule has no active version — declined and not yet
+   * revised (1.2.6) — in which case there is no rule-level press to make, but
+   * there may still be rows below.
    */
   readonly version: number | null;
-  /** Rows still awaiting a decision (1.2.2). */
-  readonly pending: RuleDetailRow[];
-  /** Rows already approved and applied (1.2.2). */
-  readonly approved: RuleDetailRow[];
+  /** The rule's rows, grouped by the version that made them, newest first (1.2.2). */
+  readonly versions: RuleDetailVersionGroup[];
   /** What a human last told this rule to do differently (1.5.1). Null when nobody has. */
   readonly guidance: string | null;
   /** The version that guidance is stored on. */
@@ -120,8 +148,8 @@ export interface RuleDetailResponse {
  *
  * Rule rows have no surrogate id: `(legacyId, ruleId, version, column)` is the
  * primary key, so this is the only way a press can name one row (1.2.4, 1.2.7).
- * The version is the detail's active version, which is the version both
- * sections were read from.
+ * The version is the one that made the row — on the rules screen, the version
+ * of the group the row was drawn in.
  */
 export interface RuleRowAddress {
   readonly table: LegacySourceTable;

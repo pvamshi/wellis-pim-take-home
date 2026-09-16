@@ -76,16 +76,19 @@ function sections(rules: RuleListEntry[]): RuleSection[] {
     {
       key: 'revision',
       heading: 'Sent for revision',
-      note: 'Parked until a new version is written. Open one to read or refine the guidance it was given.',
+      note: 'Parked until a new version is written, so nothing of it runs. Open one to read or refine its guidance, or to decide the rows it has already found.',
       rules: queued,
     },
   ];
 }
 
 /**
- * The rules screen (1.2.1): every rule whose active version has rows waiting
- * for a decision, most first, then the rules whose changes are all applied,
- * then the versions waiting to be rewritten (1.5.1). Each is expandable.
+ * The rules screen (1.2.1): every rule with rows waiting for a decision, most
+ * first, then the rules whose changes are all applied, then the versions
+ * waiting to be rewritten (1.5.1). Each is expandable.
+ *
+ * A line's count is all of that rule's rows, whatever version made them, which
+ * is exactly what expanding it shows (1.2.2).
  *
  * The list is rendered in the order `GET /rules` hands it over — no sort, and
  * no line dropped; the page only splits it in three. That behaviour is the endpoint's (T5.1)
@@ -276,17 +279,22 @@ export function RulesPage() {
           </Alert>
         )}
 
-        {/* A parked rule's own pending rows are not work: nothing here can move them. */}
-        {state.kind === 'loaded' &&
-          !state.rules.some((rule) => !rule.queuedForRevision && rule.pending > 0) && (
-            <Stack gap="xs">
-              <Text fw={600}>Nothing is pending.</Text>
-              <Text size="sm" c="dimmed">
-                A rule appears here once a run has left rows awaiting a decision. Rules whose
-                changes have all been applied are listed under Applied.
-              </Text>
-            </Stack>
-          )}
+        {/*
+          Any rule's pending rows, a parked rule's included. Those rows are
+          still decided one at a time (1.2.2), so a screen saying nothing is
+          pending above a line reading "290 pending" would be the same
+          disagreement between a count and its rows this screen has just been
+          fixed of.
+        */}
+        {state.kind === 'loaded' && !state.rules.some((rule) => rule.pending > 0) && (
+          <Stack gap="xs">
+            <Text fw={600}>Nothing is pending.</Text>
+            <Text size="sm" c="dimmed">
+              A rule appears here once a run has left rows awaiting a decision. Rules whose changes
+              have all been applied are listed under Applied.
+            </Text>
+          </Stack>
+        )}
 
         {state.kind === 'loaded' &&
           sections(state.rules).map(

@@ -12,6 +12,7 @@ import {
   type LegacyRuleStatus,
 } from '../src/legacy/legacy-rule.entity';
 import type { RuleDetailResponse } from '../src/rule-detail/rule-detail.controller';
+import type { RuleDetailVersionGroup } from '../src/rules/rule-detail.service';
 import { RuleVersion } from '../src/rules/rule-version.entity';
 import { RuleVersionsService } from '../src/rules/rule-versions.service';
 import { Rule } from '../src/rules/rule.entity';
@@ -27,9 +28,9 @@ import { createTemporaryDatabase, type TemporaryDatabase } from './temp-database
  * and `approve.spec.ts` do.
  *
  * Nothing here asserts that a service was called. Every assertion is about the
- * body the endpoint answered with, because the two sections *are* the
- * behaviour: a suite watching a call could not tell a row that was shown from
- * one that was silently dropped.
+ * body the endpoint answered with, because the blocks and their sections *are*
+ * the behaviour: a suite watching a call could not tell a row that was shown
+ * from one that was silently dropped.
  *
  * Each test uses rule ids and legacy ids of its own, so no test's rows can
  * appear in another's detail.
@@ -135,6 +136,30 @@ describe('the rule detail', () => {
     return { status: response.status, body: response.body as RuleDetailResponse };
   }
 
+  /**
+   * The one block a fixture with a single version leaves behind.
+   *
+   * It throws rather than returning the first of several, so a test that means
+   * "one version made all of these" cannot quietly pass while reading one block
+   * of two.
+   */
+  function soleGroup(body: RuleDetailResponse): RuleDetailVersionGroup {
+    if (body.versions.length !== 1) {
+      throw new Error(
+        `expected one version block, got ${body.versions.length}: ${body.versions
+          .map((group) => `v${group.version}`)
+          .join(', ')}`,
+      );
+    }
+
+    return body.versions[0];
+  }
+
+  /** Every row of the detail, whichever block and section it is in. */
+  function allRows(body: RuleDetailResponse): DetailRowBody[] {
+    return body.versions.flatMap((group) => [...group.pending, ...group.approved]);
+  }
+
   /** `(table, legacyId, column)` of every row of a section, in its order. */
   function addresses(rows: readonly DetailRowBody[]): string[] {
     return rows.map((row) => `${row.table}/${row.legacyId}/${row.column}`);
@@ -189,19 +214,22 @@ describe('the rule detail', () => {
     );
 
     const { status, body } = await loadDetail('R-TWO');
+    const group = soleGroup(body);
 
     // 1.2.2: "a pending section lists the 12 rows awaiting a decision / and an
     // approved section lists the 328 already applied." Exactly those rows, not
-    // 340 in one heap and not the same rows in both.
+    // 340 in one heap and not the same rows in both. One version made them all,
+    // so they are one block.
     expect(status).toBe(200);
     expect(body.version).toBe(1);
-    expect(body.pending).toHaveLength(12);
-    expect(body.approved).toHaveLength(328);
-    expect(body.pending.map((row) => row.legacyId)).toEqual(
+    expect([group.version, group.state]).toEqual([1, 'active']);
+    expect(group.pending).toHaveLength(12);
+    expect(group.approved).toHaveLength(328);
+    expect(group.pending.map((row) => row.legacyId)).toEqual(
       Array.from({ length: 12 }, (_, index) => `WAITING-${index + 1}`).sort(),
     );
-    expect(new Set(body.approved.map((row) => row.legacyId)).size).toBe(328);
-    expect(body.approved.every((row) => row.legacyId.startsWith('DONE-'))).toBe(true);
+    expect(new Set(group.approved.map((row) => row.legacyId)).size).toBe(328);
+    expect(group.approved.every((row) => row.legacyId.startsWith('DONE-'))).toBe(true);
   });
 
   it('shows before and after on a row, and nothing else', async () => {
@@ -221,7 +249,7 @@ describe('the rule detail', () => {
     // 1.2.3: "Every row shows previousValue and nextValue side by side."
     // Whole-object equality, so a missing field and a field the row has no
     // business carrying both fail this. `ruleId` and `version` are deliberately
-    // not on a row — they are the same on all of them and sit on the detail.
+    // not on a row — the rule id is the detail's and the version is its block's.
     expect(status).toBe(200);
     expect(body).toEqual({
       ruleId: 'R-DIFF',
@@ -229,16 +257,22 @@ describe('the rule detail', () => {
       description: 'R-DIFF description',
       ambiguous: false,
       version: 1,
-      pending: [
+      versions: [
         {
-          table: 'patient',
-          legacyId: 'recDIFF',
-          column: 'phone',
-          previousValue: '06 12 34 56 78',
-          nextValue: '+31612345678',
+          version: 1,
+          state: 'active',
+          pending: [
+            {
+              table: 'patient',
+              legacyId: 'recDIFF',
+              column: 'phone',
+              previousValue: '06 12 34 56 78',
+              nextValue: '+31612345678',
+            },
+          ],
+          approved: [],
         },
       ],
-      approved: [],
       guidance: null,
       guidanceVersion: null,
       queuedForRevision: false,
@@ -262,12 +296,13 @@ describe('the rule detail', () => {
     ]);
 
     const { status, body } = await loadDetail('R-VAGUE');
-    const rows: DetailRowBody[] = [...body.pending, ...body.approved];
+    const rows = allRows(body);
 
     // 1.1.12 and 1.2.3's second sentence: an ambiguous rule's rows show the
     // previous value and the rule's description in place of a new value. The
     // key is absent, not null — asserted with `Object.hasOwn`, because a null
-    // check would pass on a row that sent one.
+    // check would pass on a row that sent one. Ambiguity is the rule's, so it
+    // is on the detail and never on a block or a row.
     expect(status).toBe(200);
     expect(body.ambiguous).toBe(true);
     expect(body.description).toBe(
@@ -294,7 +329,7 @@ describe('the rule detail', () => {
     ]);
 
     const { body } = await loadDetail('R-CLEAR');
-    const [row] = body.pending as DetailRowBody[];
+    const [row] = soleGroup(body).pending as DetailRowBody[];
 
     // The other half of the omission: a rule that is not ambiguous may
     // legitimately propose null — clear the column. So an absent `nextValue`
@@ -319,16 +354,17 @@ describe('the rule detail', () => {
     ]);
 
     const { status, body } = await loadDetail('R-CROSSED');
+    const group = soleGroup(body);
 
-    // 1.2.2 names two sections and there is no third. A row crossed out is
-    // settled forever (1.2.7, 1.2.9) — it is neither waiting for a decision nor
-    // applied, so it is not on this screen at all.
+    // 1.2.2 names two sections in a block and there is no third. A row crossed
+    // out is settled forever (1.2.7, 1.2.9) — it is neither waiting for a
+    // decision nor applied, so it is not on this screen at all.
     expect(status).toBe(200);
-    expect(addresses(body.pending)).toEqual(['patient/recLIVE/phone']);
-    expect(addresses(body.approved)).toEqual(['patient/recDONE/phone']);
+    expect(addresses(group.pending)).toEqual(['patient/recLIVE/phone']);
+    expect(addresses(group.approved)).toEqual(['patient/recDONE/phone']);
   });
 
-  it('shows the active version’s rows and not a superseded version’s', async () => {
+  it('groups a rule’s rows by the version that made them, newest version first', async () => {
     await seedRule('R-MOVED', [1, 2], 2);
     await seedFindings(patientRules, findings('R-MOVED', 3, { version: 1, prefix: 'OLD' }));
     await seedFindings(patientRules, findings('R-MOVED', 2, { version: 2, prefix: 'NEW' }));
@@ -338,14 +374,29 @@ describe('the rule detail', () => {
     );
 
     const { body } = await loadDetail('R-MOVED');
+    const [current, previous] = body.versions;
 
-    // Both sections are addressed at the active version, because that is the
-    // `(ruleId, version)` the list counts and every tick and cross sends back.
-    // Version 1's pending rows are what a decline left lying around (1.2.6);
-    // showing them would put rows on the screen no press can move.
+    // A rule's rows outlive the version that made them: version 1's three are
+    // what being superseded left behind, and they are addressable at version 1
+    // (1.2.4, 1.2.7) exactly as version 2's are at version 2. Reading only the
+    // active version hid them under a count that included them.
+    //
+    // `version` on the detail is still the active one, because that is what the
+    // whole-rule Approve acts on — a different question from where rows came
+    // from.
     expect(body.version).toBe(2);
-    expect(addresses(body.pending)).toEqual(['patient/NEW-1/phone', 'patient/NEW-2/phone']);
-    expect(addresses(body.approved)).toEqual(['patient/NEWDONE-1/phone']);
+    expect(body.versions.map((group) => [group.version, group.state])).toEqual([
+      [2, 'active'],
+      [1, 'superseded'],
+    ]);
+    expect(addresses(current.pending)).toEqual(['patient/NEW-1/phone', 'patient/NEW-2/phone']);
+    expect(addresses(current.approved)).toEqual(['patient/NEWDONE-1/phone']);
+    expect(addresses(previous.pending)).toEqual([
+      'patient/OLD-1/phone',
+      'patient/OLD-2/phone',
+      'patient/OLD-3/phone',
+    ]);
+    expect(previous.approved).toEqual([]);
   });
 
   it('shows only this rule’s rows when another rule caught the same legacy rows', async () => {
@@ -358,12 +409,14 @@ describe('the rule detail', () => {
     ]);
 
     const { body } = await loadDetail('R-MINE');
+    const group = soleGroup(body);
 
     // One rule, one fix (1.1.4): the reason a value changed is a single rule,
     // so the screen for one rule shows that rule's rows and no other's — even
-    // where two rules caught the same legacy row.
-    expect(addresses(body.pending)).toEqual(['patient/recSHARED/phone']);
-    expect(body.approved).toEqual([]);
+    // where two rules caught the same legacy row, and even though both rules'
+    // rows are version 1.
+    expect(addresses(group.pending)).toEqual(['patient/recSHARED/phone']);
+    expect(group.approved).toEqual([]);
   });
 
   it('shows rows from all three sources, each naming its own table', async () => {
@@ -385,12 +438,14 @@ describe('the rule detail', () => {
     ]);
 
     const { body } = await loadDetail('R-SPAN');
+    const group = soleGroup(body);
 
     // A rule's scope is wider than one value and may span two tables (1.1.6),
     // and a finding is always field-shaped (1.1.7). Every row names the source
-    // it is against, which is the part of its address the URL does not carry —
-    // without it, no row action could be addressed from this screen.
-    expect(body.pending).toEqual([
+    // it is against, which is the part of its address neither the URL nor the
+    // block it sits in carries — without it, no row action could be addressed
+    // from this screen.
+    expect(group.pending).toEqual([
       {
         table: 'patient',
         legacyId: 'recP',
@@ -406,7 +461,7 @@ describe('the rule detail', () => {
         nextValue: '+31612345678',
       },
     ]);
-    expect(body.approved).toEqual([
+    expect(group.approved).toEqual([
       {
         table: 'consent',
         legacyId: 'recC',
@@ -422,15 +477,30 @@ describe('the rule detail', () => {
     await seedFindings(patientRules, findings('R-FRESH', 4));
 
     const { status, body } = await loadDetail('R-FRESH');
+    const group = soleGroup(body);
 
     // An empty section is a state, not a failure: a rule nobody has decided on
     // yet has four rows waiting and nothing applied.
     expect(status).toBe(200);
-    expect(body.pending).toHaveLength(4);
-    expect(body.approved).toEqual([]);
+    expect(group.pending).toHaveLength(4);
+    expect(group.approved).toEqual([]);
   });
 
-  it('answers a parked rule with no version and no rows', async () => {
+  it('answers a rule that has found nothing with no blocks at all', async () => {
+    await seedRule('R-SILENT', [1], 1);
+
+    const { status, body } = await loadDetail('R-SILENT');
+
+    // A real rule that has caught nothing. There is no version block, because a
+    // block is a version that made rows; the rule is a 200 with an active
+    // version and nothing under it, and the screen says so in words rather than
+    // drawing two empty sections.
+    expect(status).toBe(200);
+    expect(body.version).toBe(1);
+    expect(body.versions).toEqual([]);
+  });
+
+  it('answers a parked rule with no active version, and its rows under the version that made them', async () => {
     await seedRule('R-PARKED', [1], 1);
     await seedFindings(patientRules, findings('R-PARKED', 5));
 
@@ -439,25 +509,55 @@ describe('the rule detail', () => {
     await ruleVersions.decline('R-PARKED', 'it matched Belgian numbers too');
 
     const { status, body } = await loadDetail('R-PARKED');
+    const group = soleGroup(body);
 
     // A rule waiting on a revision is a real rule the screen can be pointed at,
-    // so this is a 200 and not a 500. There is no active version for rows to
-    // belong to, and the inactive version's five pending rows are not shown —
-    // no tick or cross could move them.
+    // so this is a 200 and not a 500. No version is active, so there is no
+    // whole-rule press to make and `version` says null — but the five rows the
+    // decline left are still findings, still counted on the line (1.2.1) and
+    // still decidable one at a time, so they are listed under the version that
+    // made them. This is the shape the screen used to answer with nothing at
+    // all: "290 pending" over "No rows are awaiting a decision".
     expect(status).toBe(200);
-    expect(body).toEqual({
+    expect({
+      ruleId: body.ruleId,
+      ruleName: body.ruleName,
+      version: body.version,
+      // What it was told, shown back so it can be refined rather than retyped (1.5.1).
+      guidance: body.guidance,
+      guidanceVersion: body.guidanceVersion,
+      queuedForRevision: body.queuedForRevision,
+    }).toEqual({
       ruleId: 'R-PARKED',
       ruleName: 'R-PARKED name',
-      description: 'R-PARKED description',
-      ambiguous: false,
       version: null,
-      pending: [],
-      approved: [],
-      // What it was told, shown back so it can be refined rather than retyped (1.5.1).
       guidance: 'it matched Belgian numbers too',
       guidanceVersion: 1,
       queuedForRevision: true,
     });
+    expect([group.version, group.state]).toEqual([1, 'needsReview']);
+    expect(group.pending).toHaveLength(5);
+    expect(group.approved).toEqual([]);
+  });
+
+  it('answers a rule whose rows are all on a superseded version, its newer one having found nothing', async () => {
+    await seedRule('R-STRANDED', [1, 2], 1);
+    await seedFindings(patientRules, findings('R-STRANDED', 18, { version: 1 }));
+    // Version 2 was written and activated, then sent back to be rewritten. It
+    // never found anything; version 1's rows are all this rule has.
+    await ruleVersions.activate('R-STRANDED', 2);
+    await ruleVersions.decline('R-STRANDED', 'an empty unit is not always kilograms');
+
+    const { status, body } = await loadDetail('R-STRANDED');
+    const group = soleGroup(body);
+
+    // P47's shape, and the same bug the other way round: the list named version
+    // 2 and counted its rows, of which there are none, so eighteen findings had
+    // no count and no screen. They are version 1's, and that is where they show.
+    expect(status).toBe(200);
+    expect(body.version).toBe(null);
+    expect([group.version, group.state]).toEqual([1, 'superseded']);
+    expect(group.pending).toHaveLength(18);
   });
 
   it('answers 404 for a rule id nobody has written', async () => {
@@ -494,8 +594,9 @@ describe('the rule detail', () => {
     // Nothing specifies an order, so this one is arbitrary — but it is fixed.
     // A screen whose rows reshuffle between two loads is worse than one whose
     // order nobody chose, and a row a user is halfway through deciding on must
-    // not move under them.
-    expect(addresses(first.body.pending)).toEqual([
+    // not move under them. Grouping by version does not disturb it: the sources
+    // are read in order and each row joins the block of the version that made it.
+    expect(addresses(soleGroup(first.body).pending)).toEqual([
       'patient/P-1/email',
       'patient/P-1/phone',
       'patient/P-2/phone',
@@ -503,6 +604,8 @@ describe('the rule detail', () => {
       'consent/C-1/granted',
       'consent/C-2/granted',
     ]);
-    expect(addresses(second.body.pending)).toEqual(addresses(first.body.pending));
+    expect(addresses(soleGroup(second.body).pending)).toEqual(
+      addresses(soleGroup(first.body).pending),
+    );
   });
 });

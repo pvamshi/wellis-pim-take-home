@@ -236,8 +236,9 @@ describe('the rules list', () => {
     ]);
   });
 
-  it('leaves out a version never activated, and lists a parked one last, waiting to be rewritten', async () => {
+  it('lists a rule for the rows it has, whatever state the version that made them is in', async () => {
     await seedRule('R-UNRELEASED', [1]);
+    await seedRule('R-UNTOUCHED', [1]);
     await seedRule('R-PARKED', [1], 1);
     await seedRule('R-LIVE', [1], 1);
     await seedFindings(patientRules, findings('R-UNRELEASED', 9));
@@ -250,16 +251,21 @@ describe('the rules list', () => {
 
     const { body } = await loadRules();
 
-    // A version nobody activated is not on the screen at all. A parked one is:
-    // its guidance is read and refined there (1.5.1). It sorts behind every
-    // rule with work, whatever its own count, because nothing here can move it.
+    // Rows are what put a rule on this screen. Nine findings nobody can reach
+    // from here are nine findings lost, whatever became of the version that
+    // made them — and each is still addressable at that version (1.2.4, 1.2.7).
+    // R-UNTOUCHED has a version and no rows, so it is not a line: that is the
+    // one thing that keeps a rule off the screen. A version queued for a
+    // rewrite still sorts behind every rule with work, whatever its own count,
+    // because nothing here can move it.
     expect(body.map((entry) => [entry.ruleId, entry.pending, entry.queuedForRevision])).toEqual([
+      ['R-UNRELEASED', 9, false],
       ['R-LIVE', 2, false],
       ['R-PARKED', 7, true],
     ]);
   });
 
-  it('leaves out a rule whose pending rows all belong to a superseded version', async () => {
+  it('counts a rule’s pending rows when they all belong to a superseded version', async () => {
     await seedRule('R-SUPERSEDED', [1, 2], 2);
     await seedFindings(patientRules, findings('R-SUPERSEDED', 6, { version: 1 }));
     await seedFindings(
@@ -267,22 +273,22 @@ describe('the rules list', () => {
       findings('R-SUPERSEDED', 2, { version: 2, status: 'approved' }),
     );
 
-    // The count is what pressing Approve on the rule would clear, and that
-    // press moves the pending rows of the *active* version. Version 1's rows
-    // are the ones a decline left lying around; counting them would give the
-    // rule a number no button can move. It is listed for version 2's applied
-    // rows alone.
-    expect(await listedRules()).toEqual([['R-SUPERSEDED', 0]]);
+    // The count is what expanding the line shows (1.2.2), and that is every row
+    // of the rule whatever version made it. Version 1's six are what a decline
+    // left lying around (1.2.6) — real findings a tick or a cross still moves,
+    // addressed at the version that made them — so a line counting version 2
+    // alone reported six waiting rows as no work at all.
+    expect(await listedRules()).toEqual([['R-SUPERSEDED', 6]]);
   });
 
-  it('counts only the active version’s rows when an older version left some pending', async () => {
+  it('sums a rule’s pending rows across the versions that made them', async () => {
     await seedRule('R-BOTH', [1, 2], 2);
     await seedFindings(patientRules, findings('R-BOTH', 5, { version: 1, prefix: 'OLD' }));
     await seedFindings(patientRules, findings('R-BOTH', 3, { version: 2, prefix: 'NEW' }));
 
-    // Same join, the other way round: the rule does have work, and the number
-    // beside it is three rather than eight.
-    expect(await listedRules()).toEqual([['R-BOTH', 3]]);
+    // Same join, the other way round: the number beside the rule is eight, and
+    // eight is what expanding it lists, under two version headings.
+    expect(await listedRules()).toEqual([['R-BOTH', 8]]);
   });
 
   it('sorts by how many rows each rule caught, most first', async () => {
@@ -329,9 +335,9 @@ describe('the rules list', () => {
       findings('R-MIXED', 3, { prefix: 'REJECTED', status: 'declined' }),
     );
 
-    // 1.2.1 counts rows in pending. The seven approved ones are the detail
-    // screen's second section (1.2.2) and the three declined ones are settled
-    // (1.2.7); neither is work waiting for a decision.
+    // 1.2.1 counts rows in pending. The seven approved ones are the second
+    // section of each version block (1.2.2) and the three declined ones are
+    // settled (1.2.7); neither is work waiting for a decision.
     expect(await listedRules()).toEqual([['R-MIXED', 2]]);
   });
 

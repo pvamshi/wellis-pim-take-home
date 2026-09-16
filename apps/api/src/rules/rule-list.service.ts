@@ -13,10 +13,11 @@ import { RuleVersion } from './rule-version.entity';
  * whose changes have all been applied.
  *
  * Six fields and no more. `ruleName` is how a line names the rule it is, and
- * `version` is the half of the address the count belongs to — 1.2.1 filters on
- * the active version, and every row action is addressed by `(ruleId, version)`.
- * Everything else a rule knows about itself belongs to the screen that expands
- * one, not to the list that leads to it.
+ * `version` is the version the line names itself by — which is not where its
+ * counts come from. The counts are all of the rule's rows, whatever version
+ * made them, so that the number on a closed line is the number of rows opening
+ * it shows (1.2.2). Everything else a rule knows about itself belongs to the
+ * screen that expands one, not to the list that leads to it.
  *
  * `ambiguous` is the exception, and earns its place by changing what opening a
  * line costs. An ambiguous rule's rows cannot be ticked through in a batch
@@ -31,17 +32,23 @@ import { RuleVersion } from './rule-version.entity';
 export interface RuleListEntry {
   readonly ruleId: string;
   readonly ruleName: string;
-  /** The active version, and so the version the counts belong to (1.1.8). */
+  /**
+   * The version the line names: the active one, or the one waiting to be
+   * rewritten when no version is active, or the highest written when there is
+   * neither (1.1.8). It says which version the rule is now, and is not the
+   * address of the counts beside it — a rule's rows may be spread over several
+   * versions, and all of them are counted.
+   */
   readonly version: number;
-  /** Rows of this rule and version still awaiting a decision. Zero when every change is applied. */
+  /** Every row of this rule still awaiting a decision, whatever version made it. Zero when every change is applied. */
   readonly pending: number;
-  /** Rows of this rule and version already approved and applied (1.2.2). */
+  /** Every row of this rule already approved and applied (1.2.2), whatever version made it. */
   readonly approved: number;
   /**
-   * True when this line is a version waiting for the revision workflow (1.5.1)
-   * rather than the rule's active one. Such a rule runs nothing until its next
-   * version is written, and it is listed so the guidance it was given can still
-   * be read and refined.
+   * True when the version this line names is waiting for the revision workflow
+   * (1.5.1) rather than being the rule's active one. Such a rule runs nothing
+   * until its next version is written, and it is listed so the guidance it was
+   * given can still be read and refined.
    */
   readonly queuedForRevision: boolean;
   /** Whether this rule proposes values or only reports what it cannot fix (1.1.12). */
@@ -53,7 +60,7 @@ export interface RuleListEntry {
  *
  * A plain list, not the keyed map `rule-findings.service.ts` and
  * `rule-approvals.service.ts` each keep: neither the short name nor the data
- * table is needed here. Counting pending rows asks nothing of a source but
+ * table is needed here. Counting a rule's rows asks nothing of a source but
  * which table to count, and a rule's scope may span all three (1.1.6), so all
  * three are always read.
  */
@@ -66,28 +73,34 @@ const ruleTables: readonly EntityTarget<LegacyRuleRow>[] = [
 /** One grouped count of one status, as the driver hands it back. */
 interface StatusCount {
   ruleId: string;
-  version: number;
   status: string;
   count: number | string;
 }
 
-/** How many of one version's rows are waiting, and how many were applied. */
-interface VersionCounts {
+/** How many of a rule's rows are waiting, and how many were applied. */
+interface RuleCounts {
   pending: number;
   approved: number;
 }
 
 /**
- * The key the counts are accumulated under: `(ruleId, version)` as one string.
+ * The version a line names, out of every version that rule has.
  *
- * The version goes first, because it is the half that cannot contain the
- * separator. Read back, everything before the first colon is the version and
- * everything after it is the rule id, so no two different pairs can produce the
- * same key — which `${ruleId}:${version}` would not guarantee, rule ids being
- * their authors' to choose.
+ * The active one, because that is the rule as it runs. With none — parked by a
+ * decline (1.2.6) and not yet rewritten — the one queued for the rewrite, whose
+ * guidance is read and refined on that line (1.5.1). With neither, the highest
+ * written: the rule still has rows on this screen, and a line has to name a
+ * version to be a line at all.
+ *
+ * The highest is found rather than taken from the head of the list, so the
+ * answer does not quietly depend on the order the query happened to return.
  */
-function pendingKey(ruleId: string, version: number): string {
-  return `${version}:${ruleId}`;
+function namedVersion(versions: readonly RuleVersion[]): RuleVersion {
+  return (
+    versions.find((version) => version.status === 'active') ??
+    versions.find((version) => version.needsReview) ??
+    versions.reduce((highest, version) => (version.version > highest.version ? version : highest))
+  );
 }
 
 /**
@@ -97,22 +110,28 @@ function pendingKey(ruleId: string, version: number): string {
  * is the layer that owns them (1.1.3); the endpoint that serves it is a module
  * of its own, exactly as the presses are.
  *
- * Four things the code does not say on its own:
+ * Five things the code does not say on its own:
  *
- * - **The count is keyed on `(ruleId, version)`, not on the rule.** It has to
- *   equal what the Approve button on that rule would clear, and
- *   `RuleApprovalsService.approveRule` moves exactly the pending rows of the
- *   *active* version. Pending rows left behind by a superseded version — which
- *   a rule-level decline deliberately leaves lying around (1.2.6) — therefore
- *   do not count, and cannot put a rule back on the screen carrying a number no
- *   press can move.
- * - **A rule with nothing pending is dropped rather than filtered in SQL.**
- *   1.2.1's second scenario is a property of the join it describes: the screen
- *   is the active versions that have at least one pending row, so a zero sum is
- *   simply not a line. Doing it in memory keeps the three counts independent of
- *   the version read, which is what makes the query count constant.
- * - **Four queries, whatever the number of rules.** One for the active versions
- *   with their rules, one grouped count per source table. Nothing here runs per
+ * - **The counts are the rule's, not one version's.** A rule's rows outlive the
+ *   version that made them: parking a version for a rewrite leaves its rows
+ *   exactly where they are (1.2.6), and activating a new version supersedes the
+ *   old without moving them. Counting a single version therefore printed a
+ *   number that disagreed with what opening the line showed — in both
+ *   directions, a count with no rows under it and rows under a line with no
+ *   count. One definition of a rule's findings, shared with
+ *   `RuleDetailService`: all of them, whatever version made them.
+ * - **The count is no longer what one press clears, and the screen says so.**
+ *   `RuleApprovalsService.approveRule` moves the pending rows of the *active*
+ *   version alone, so on a rule whose rows are spread over versions it clears
+ *   fewer than the line counts. That is the panel's to explain — it names the
+ *   version that button acts on — because the alternative was a count that hid
+ *   findings to keep one button's arithmetic tidy.
+ * - **A rule with no rows and no queued version is dropped rather than filtered
+ *   in SQL.** 1.2.1's second scenario is a property of the join it describes,
+ *   and doing it in memory keeps the three counts independent of the version
+ *   read, which is what makes the query count constant.
+ * - **Four queries, whatever the number of rules.** One for the versions with
+ *   their rules, one grouped count per source table. Nothing here runs per
  *   rule — a screen whose cost grows with the catalogue would get slower every
  *   time a rule is written.
  * - **Rules are read as entities, not as raw rows.** No table or column name is
@@ -125,55 +144,56 @@ export class RuleListService {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * Every rule whose active version has at least one pending or approved row,
-   * with how many of each (1.2.1): the rules with work first, most pending
-   * first, then the rules whose changes are all applied, most applied first.
+   * Every rule with a row waiting or applied, or with a version waiting to be
+   * rewritten, and how many of each (1.2.1): the rules with work first, most
+   * pending first, then the rules whose changes are all applied, most applied
+   * first, then the versions queued for a rewrite.
    */
   async list(): Promise<RuleListEntry[]> {
-    const listable = await this.dataSource
+    const written = await this.dataSource
       .getRepository(RuleVersion)
       .createQueryBuilder('version')
       // The rule is joined rather than fetched afterwards because every line
       // needs its name, and the screen has only this call to read it with.
       .innerJoinAndSelect('version.rule', 'rule')
-      .where('version.status = :status', { status: 'active' })
-      // A version waiting for the revision workflow (1.5.1) is listed too: it
-      // runs nothing, so it has no work, but the guidance it was given is read
-      // and refined on its line. A rule with both is shown by its active one.
-      .orWhere('version.needsReview = :needsReview', { needsReview: true })
       .orderBy('version.version', 'DESC')
       .getMany();
 
     const counts = await this.countRows();
-    const shown = new Map<string, RuleVersion>();
+    // Every version of a rule, because which one a line names is decided from
+    // all of them and the counts belong to none of them in particular.
+    const byRule = new Map<string, RuleVersion[]>();
 
-    for (const version of listable) {
-      const chosen = shown.get(version.ruleId);
+    for (const version of written) {
+      const versions = byRule.get(version.ruleId);
 
-      if (chosen === undefined || (chosen.status !== 'active' && version.status === 'active')) {
-        shown.set(version.ruleId, version);
+      if (versions === undefined) {
+        byRule.set(version.ruleId, [version]);
+      } else {
+        versions.push(version);
       }
     }
 
-    const entries = [...shown.values()].flatMap((version): RuleListEntry[] => {
-      const count = counts.get(pendingKey(version.ruleId, version.version)) ?? {
-        pending: 0,
-        approved: 0,
-      };
-      const queuedForRevision = version.status !== 'active';
+    const entries = [...byRule.entries()].flatMap(([ruleId, versions]): RuleListEntry[] => {
+      const count = counts.get(ruleId) ?? { pending: 0, approved: 0 };
+      const named = namedVersion(versions);
+      const queuedForRevision = named.needsReview;
 
+      // A rule that has decided nothing and is waiting for nothing is not a
+      // line. A rule queued for a rewrite is, whatever its counts: its guidance
+      // is read there (1.5.1).
       if (!queuedForRevision && count.pending === 0 && count.approved === 0) {
         return [];
       }
 
       return [
         {
-          ruleId: version.ruleId,
-          ruleName: version.rule.ruleName,
-          version: version.version,
+          ruleId,
+          ruleName: named.rule.ruleName,
+          version: named.version,
           pending: count.pending,
           approved: count.approved,
-          ambiguous: version.rule.ambiguous,
+          ambiguous: named.rule.ambiguous,
           queuedForRevision,
         },
       ];
@@ -192,43 +212,41 @@ export class RuleListService {
   }
 
   /**
-   * How many pending rows each `(ruleId, version)` has, summed across the three
-   * source tables.
+   * How many rows each rule has waiting and applied, summed across the three
+   * source tables and across every version of the rule.
    *
    * One grouped statement per table, never one per rule, and the three results
    * accumulate into a single map — a rule's scope may span two tables (1.1.6)
    * and the screen shows one number per rule, so the sum is the answer and a
-   * per-source breakdown would be schema nobody asked for.
+   * per-source breakdown would be schema nobody asked for. Version is not
+   * grouped on for the same reason: the line counts the rule.
    *
    * The count is coerced with `Number(...)` because an aggregate is not a
    * mapped column: a driver is free to hand `COUNT(*)` back as a string, and a
    * string would sort and add as text.
    */
-  private async countRows(): Promise<Map<string, VersionCounts>> {
-    const counts = new Map<string, VersionCounts>();
+  private async countRows(): Promise<Map<string, RuleCounts>> {
+    const counts = new Map<string, RuleCounts>();
 
     for (const table of ruleTables) {
       const rows = await this.dataSource
         .getRepository(table)
         .createQueryBuilder('finding')
         .select('finding.ruleId', 'ruleId')
-        .addSelect('finding.version', 'version')
         .addSelect('finding.status', 'status')
         .addSelect('COUNT(*)', 'count')
         .where('finding.status IN (:...statuses)', { statuses: ['pending', 'approved'] })
         .groupBy('finding.ruleId')
-        .addGroupBy('finding.version')
         .addGroupBy('finding.status')
         .getRawMany<StatusCount>();
 
       for (const row of rows) {
-        const key = pendingKey(row.ruleId, row.version);
-        const count = counts.get(key) ?? { pending: 0, approved: 0 };
+        const count = counts.get(row.ruleId) ?? { pending: 0, approved: 0 };
 
         if (row.status === 'pending') count.pending += Number(row.count);
         else count.approved += Number(row.count);
 
-        counts.set(key, count);
+        counts.set(row.ruleId, count);
       }
     }
 
