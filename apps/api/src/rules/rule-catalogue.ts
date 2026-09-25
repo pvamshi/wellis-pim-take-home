@@ -112,6 +112,7 @@ import { c06 } from './catalogue/c06';
 import { c07 } from './catalogue/c07';
 import { c08 } from './catalogue/c08';
 import { c09 } from './catalogue/c09';
+import { c09V2 } from './catalogue/c09-v2';
 import { c10 } from './catalogue/c10';
 import { c11 } from './catalogue/c11';
 import { c12 } from './catalogue/c12';
@@ -270,6 +271,9 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   c07,
   c08,
   c09,
+  // After v1, for the reason p47V2 gives: the sync takes the last entry's name,
+  // description and ambiguity.
+  c09V2,
   c10,
   c11,
   c12,
