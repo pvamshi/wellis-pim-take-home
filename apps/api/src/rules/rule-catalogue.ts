@@ -46,6 +46,7 @@ import { p45 } from './catalogue/p45';
 import { p46 } from './catalogue/p46';
 import { p47 } from './catalogue/p47';
 import { p47V2 } from './catalogue/p47-v2';
+import { p47V3 } from './catalogue/p47-v3';
 import { p48 } from './catalogue/p48';
 import { p49 } from './catalogue/p49';
 import { p50 } from './catalogue/p50';
@@ -65,6 +66,7 @@ import { p63 } from './catalogue/p63';
 import { p64 } from './catalogue/p64';
 import { p65 } from './catalogue/p65';
 import { p66 } from './catalogue/p66';
+import { p67 } from './catalogue/p67';
 import { i01 } from './catalogue/i01';
 import { i02 } from './catalogue/i02';
 import { i03 } from './catalogue/i03';
@@ -305,4 +307,11 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   // Created alongside I34 v2 (1.5.2): the millilitre conversion I34 was sent
   // back for, which an empty cell has no value to undergo.
   i39,
+  // After v1 and v2, for the reason p47V2 gives: the sync takes the last
+  // entry's name, description and ambiguity. Narrowed to weights that read as
+  // kilograms against the height.
+  p47V3,
+  // Created alongside P47 v3 (1.5.2): a blank unit whose weight reads as
+  // pounds, converted to kilograms the way P66 converts a written lbs.
+  p67,
 ];
