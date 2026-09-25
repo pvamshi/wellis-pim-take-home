@@ -113,6 +113,8 @@ import { c07 } from './catalogue/c07';
 import { c08 } from './catalogue/c08';
 import { c09 } from './catalogue/c09';
 import { c09V2 } from './catalogue/c09-v2';
+import { i34V2 } from './catalogue/i34-v2';
+import { i39 } from './catalogue/i39';
 import { c10 } from './catalogue/c10';
 import { c11 } from './catalogue/c11';
 import { c12 } from './catalogue/c12';
@@ -297,4 +299,10 @@ export const ruleCatalogue: readonly CatalogueRule[] = [
   m05,
   m06,
   m07,
+  // After v1, for the reason p47V2 gives: the sync takes the last entry's name,
+  // description and ambiguity.
+  i34V2,
+  // Created alongside I34 v2 (1.5.2): the millilitre conversion I34 was sent
+  // back for, which an empty cell has no value to undergo.
+  i39,
 ];
